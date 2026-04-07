@@ -1,0 +1,13 @@
+{
+  "name": "feishu-long-connection",
+  "version": "1.0.0",
+  "description": "飞书长连接客户端",
+  "main": "start.js",
+  "scripts": {
+    "start": "node start.js"
+  },
+  "dependencies": {
+    "@lark-oapi/lark": "^1.0.0",
+    "dotenv": "^16.0.0"
+  }
+}

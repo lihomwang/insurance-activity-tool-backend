@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs-18.x"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["echo 'No build step needed'"]
+
+[start]
+cmd = "node servers/api-server.js"

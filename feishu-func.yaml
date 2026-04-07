@@ -1,0 +1,104 @@
+# 飞书云函数配置文件
+# 用于部署到飞书云函数平台
+
+# 应用信息
+app_id: cli_a95a6b370af8dcc8
+app_secret: v2XoWID99STcoN1l1ijQtTk0ryEdjizF
+
+# 云函数配置
+functions:
+  # 主云函数 - 处理所有 HTTP 请求和事件回调
+  - name: insurance-activity-cloud
+    entry: functions/cloud-index.js
+    runtime: Node.js 18
+    memory: 256MB
+    timeout: 30s
+
+  # AI 教练云函数
+  - name: ai-coach
+    entry: functions/ai-chat/index.js
+    runtime: Node.js 18
+    memory: 256MB
+    timeout: 60s
+
+  # 定时任务云函数
+  - name: scheduler
+    entry: functions/scheduler/index.js
+    runtime: Node.js 18
+    memory: 512MB
+    timeout: 120s
+
+  # 消息接收云函数（事件回调）
+  - name: receive-message
+    entry: functions/receive-message/index.js
+    runtime: Node.js 18
+    memory: 256MB
+    timeout: 30s
+
+# 环境变量
+environment:
+  FEISHU_APP_ID: cli_a95a6b370af8dcc8
+  FEISHU_APP_SECRET: v2XoWID99STcoN1l1ijQtTk0ryEdjizF
+  FEISHU_VERIFICATION_TOKEN: 1cd79a5727e4e24540c9527e416c7416
+  FEISHU_API_BASE: https://open.feishu.cn
+  AI_PROVIDER: dashscope
+  DASHSCOPE_API_KEY: sk-1697fef9d8b843f1a12bebce6cc64fc8
+  DASHSCOPE_MODEL: qwen-plus
+  FEISHU_BITABLE_APP_TOKEN: LR0RbtG9PavAcyswZMvcETWbnEh
+  FEISHU_BITABLE_TABLE_ID: tbl1blvjmScTokEi
+  NODE_ENV: production
+
+# 触发器配置
+triggers:
+  # HTTP 触发器
+  - function: insurance-activity-cloud
+    type: HTTP
+    path: /api/*
+
+  # 事件订阅触发器
+  - function: receive-message
+    type: EVENT
+    events:
+      - im.message.receive_v1
+
+  # 定时触发器 - 每天 21:00 锁定数据
+  - function: scheduler
+    type: TIMER
+    cron: '0 21 * * *'
+    config:
+      task: lock
+
+  # 定时触发器 - 每天 21:05 触发 AI 教练（千老师私信复盘）
+  - function: scheduler
+    type: TIMER
+    cron: '5 21 * * *'
+    config:
+      task: ai_coach
+
+  # 定时触发器 - 每天 23:00 生成日报
+  - function: scheduler
+    type: TIMER
+    cron: '0 23 * * *'
+    config:
+      task: daily_analytics
+
+  # 定时触发器 - 每周四 22:00 生成周报
+  - function: scheduler
+    type: TIMER
+    cron: '0 22 * * 4'
+    config:
+      task: weekly_report
+
+  # 定时触发器 - 每天早上 9:00 群里发提醒
+  - function: scheduler
+    type: TIMER
+    cron: '0 9 * * *'
+    config:
+      task: morning_reminder
+
+  # 定时触发器 - 每周五 9:00 数据清零
+  - function: scheduler
+    type: TIMER
+    cron: '0 9 * * 5'
+    config:
+      task: reset_weekly
