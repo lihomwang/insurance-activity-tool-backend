@@ -13,14 +13,13 @@ const __dirname = dirname(__filename);
 // 加载环境变量
 dotenv.config({ path: join(__dirname, '../.env.local'), override: true });
 
-// H5 应用配置 - 使用后台应用的凭证进行网页授权
-const H5_APP_ID = process.env.FEISHU_APP_ID || 'cli_a95a59999e78dcc0';
-const H5_APP_SECRET = process.env.FEISHU_APP_SECRET || 'oGkCG8FHYRxW3hNjVU3oceYgE3hYMkmE';
+// H5 应用配置 - 使用 H5 应用自己的凭证
+const H5_APP_ID = process.env.H5_APP_ID || 'cli_a95a6b370af8dcc8';
+const H5_APP_SECRET = process.env.H5_APP_SECRET || 'v2XoWID99STcoN1l1ijQtTk0ryEdjizF';
 
 console.log('[Auth] H5_APP_ID:', H5_APP_ID);
 console.log('[Auth] H5_APP_SECRET exists:', !!H5_APP_SECRET);
-console.log('[Auth] FEISHU_APP_ID from env:', process.env.FEISHU_APP_ID);
-console.log('[Auth] FEISHU_APP_SECRET from env:', !!process.env.FEISHU_APP_SECRET);
+console.log('[Auth] H5_APP_SECRET:', H5_APP_SECRET);
 
 /**
  * 使用授权码获取用户 access_token
