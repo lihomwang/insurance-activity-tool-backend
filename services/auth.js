@@ -18,6 +18,9 @@ const H5_APP_ID = process.env.FEISHU_APP_ID || 'cli_a95a59999e78dcc0';
 const H5_APP_SECRET = process.env.FEISHU_APP_SECRET || 'oGkCG8FHYRxW3hNjVU3oceYgE3hYMkmE';
 
 console.log('[Auth] H5_APP_ID:', H5_APP_ID);
+console.log('[Auth] H5_APP_SECRET exists:', !!H5_APP_SECRET);
+console.log('[Auth] FEISHU_APP_ID from env:', process.env.FEISHU_APP_ID);
+console.log('[Auth] FEISHU_APP_SECRET from env:', !!process.env.FEISHU_APP_SECRET);
 
 /**
  * 使用授权码获取用户 access_token
