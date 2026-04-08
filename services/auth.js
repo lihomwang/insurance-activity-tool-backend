@@ -22,7 +22,7 @@ const H5_APP_SECRET = process.env.H5_APP_SECRET || 'v2XoWID99STcoN1l1ijQtTk0ryEd
  */
 async function getAccessToken(code) {
   const response = await axios.post(
-    'https://open.feishu.cn/open-apis/authen/v1/oidc/access_token',
+    'https://open.feishu.cn/open-apis/authen/v1/access_token',
     {
       grant_type: 'authorization_code',
       code: code
@@ -36,6 +36,7 @@ async function getAccessToken(code) {
   );
 
   if (response.data.code !== 0) {
+    console.error('[Auth] getAccessToken error:', response.data);
     throw new Error(response.data.msg || '获取 token 失败');
   }
 
