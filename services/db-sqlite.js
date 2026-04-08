@@ -217,9 +217,10 @@ function insert(table, data) {
   const placeholders = keys.map(() => '?').join(', ');
 
   const sql = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders})`;
-  const result = query(sql, values);
+  query(sql, values);
 
-  return findOne(table, { id: result.lastInsertRowid });
+  // 使用自定义的 id 字段查询返回
+  return findOne(table, { id: data.id });
 }
 
 function update(table, where, data) {
