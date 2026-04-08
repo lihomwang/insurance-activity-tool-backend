@@ -26,15 +26,18 @@ console.log('[Auth] FEISHU_APP_SECRET from env:', !!process.env.FEISHU_APP_SECRE
  * 使用授权码获取用户 access_token
  */
 async function getAccessToken(code) {
+  console.log('[Auth] Calling Feishu API with app_id:', H5_APP_ID);
+
   const response = await axios.post(
     'https://open.feishu.cn/open-apis/authen/v1/access_token',
     {
       grant_type: 'authorization_code',
-      code: code
+      code: code,
+      client_key: H5_APP_ID,
+      client_secret: H5_APP_SECRET
     },
     {
       headers: {
-        'Authorization': 'Basic ' + Buffer.from(`${H5_APP_ID}:${H5_APP_SECRET}`).toString('base64'),
         'Content-Type': 'application/json'
       }
     }
