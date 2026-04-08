@@ -13,41 +13,51 @@ const __dirname = dirname(__filename);
 // 加载环境变量
 dotenv.config({ path: join(__dirname, '../.env.local'), override: true });
 
-// H5 应用配置 - 使用 H5 应用自己的凭证
-const H5_APP_ID = process.env.H5_APP_ID || 'cli_a95a6b370af8dcc8';
-const H5_APP_SECRET = process.env.H5_APP_SECRET || 'v2XoWID99STcoN1l1ijQtTk0ryEdjizF';
+// H5 应用配置 - 使用后台应用进行网页授权（后台应用默认支持网页授权）
+const H5_APP_ID = process.env.FEISHU_APP_ID || 'cli_a95a59999e78dcc0';
+const H5_APP_SECRET = process.env.FEISHU_APP_SECRET || 'oGkCG8FHYRxW3hNjVU3oceYgE3hYMkmE';
 
-console.log('[Auth] H5_APP_ID:', H5_APP_ID);
-console.log('[Auth] H5_APP_SECRET exists:', !!H5_APP_SECRET);
-console.log('[Auth] H5_APP_SECRET:', H5_APP_SECRET);
+console.log('[Auth] Using app_id:', H5_APP_ID);
 
 /**
  * 使用授权码获取用户 access_token
+ * 飞书文档：https://open.feishu.cn/document/ukzMzI4LzQyMDIyODM2
  */
 async function getAccessToken(code) {
+  const appCredential = Buffer.from(`${H5_APP_ID}:${H5_APP_SECRET}`).toString('base64');
+
   console.log('[Auth] Calling Feishu API with app_id:', H5_APP_ID);
+  console.log('[Auth] Auth header:', 'Basic ' + appCredential.substring(0, 20) + '...');
 
-  const response = await axios.post(
-    'https://open.feishu.cn/open-apis/authen/v1/access_token',
-    {
-      grant_type: 'authorization_code',
-      code: code,
-      client_key: H5_APP_ID,
-      client_secret: H5_APP_SECRET
-    },
-    {
-      headers: {
-        'Content-Type': 'application/json'
+  try {
+    const response = await axios.post(
+      'https://open.feishu.cn/open-apis/authen/v1/access_token',
+      {
+        grant_type: 'authorization_code',
+        code: code
+      },
+      {
+        headers: {
+          'Authorization': 'Basic ' + appCredential,
+          'Content-Type': 'application/json'
+        }
       }
+    );
+
+    console.log('[Auth] Feishu API response:', response.data);
+
+    if (response.data.code !== 0) {
+      console.error('[Auth] getAccessToken error:', response.data);
+      throw new Error(response.data.msg || '获取 token 失败');
     }
-  );
 
-  if (response.data.code !== 0) {
-    console.error('[Auth] getAccessToken error:', response.data);
-    throw new Error(response.data.msg || '获取 token 失败');
+    return response.data.data;
+  } catch (error) {
+    if (error.response) {
+      console.error('[Auth] HTTP error:', error.response.status, error.response.data);
+    }
+    throw error;
   }
-
-  return response.data.data;
 }
 
 /**
