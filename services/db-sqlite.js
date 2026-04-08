@@ -162,11 +162,18 @@ function query(sql, params = []) {
   const database = getDb();
   const stmt = database.prepare(sql);
 
-  if (sql.trim().toUpperCase().startsWith('SELECT')) {
-    return { rows: stmt.all(...params) };
-  } else {
-    const result = stmt.run(...params);
-    return { rows: [], changes: result.changes, lastInsertRowid: result.lastInsertRowid };
+  try {
+    if (sql.trim().toUpperCase().startsWith('SELECT')) {
+      return { rows: stmt.all(...params) };
+    } else {
+      const result = stmt.run(...params);
+      return { rows: [], changes: result.changes, lastInsertRowid: result.lastInsertRowid };
+    }
+  } catch (error) {
+    console.error('[DB] SQL Error:', error.message);
+    console.error('[DB] SQL:', sql);
+    console.error('[DB] Params:', params);
+    throw error;
   }
 }
 
@@ -177,8 +184,13 @@ function findOne(table, where) {
   const conditions = keys.map(key => `${key} = ?`).join(' AND ');
 
   const sql = `SELECT * FROM ${table} WHERE ${conditions} LIMIT 1`;
-  const result = query(sql, values);
-  return result.rows[0] || null;
+  try {
+    const result = query(sql, values);
+    return result.rows[0] || null;
+  } catch (error) {
+    console.error('[DB] findOne error:', error.message);
+    return null;
+  }
 }
 
 function findAll(table, where = {}, options = {}) {

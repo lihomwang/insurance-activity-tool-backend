@@ -1,9 +1,10 @@
 // servers/api-server.js
-// H5 应用 API 服务器 - 提供 RESTful API
+// H5 应用 API 服务器 - 提供 RESTful API（多租户版本）
 
 import express from 'express';
 import { feishuLogin } from '../services/auth.js';
 import db from '../services/db.js';
+import tenantService from '../services/tenant.js';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -17,6 +18,9 @@ dotenv.config({ path: join(__dirname, '../.env.local'), override: true });
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// 默认租户 ID（从环境变量获取，支持多租户后每个租户有自己的 ID）
+const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || '00000000-0000-0000-0000-000000000001';
+
 app.use(express.json());
 
 // CORS 配置
@@ -29,6 +33,9 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// 租户中间件（在所有需要认证的 API 之前使用）
+app.use(tenantService.tenantMiddleware);
 
 // 临时 session 存储（生产环境应该用 Redis）
 const sessions = new Map();
@@ -58,18 +65,21 @@ function authMiddleware(req, res, next) {
 /**
  * 飞书登录回调
  * POST /api/auth/feishu
- * Body: { code: string, appId: string }
+ * Body: { code: string, appId: string, tenantId?: string }
  */
 app.post('/api/auth/feishu', async (req, res) => {
   try {
-    const { code, appId } = req.body;
+    const { code, appId, tenantId } = req.body;
 
     if (!code) {
       return res.status(400).json({ success: false, message: '缺少授权码' });
     }
 
-    // 调用飞书登录
-    const result = await feishuLogin(code);
+    // 使用传入的 tenantId 或默认租户 ID
+    const tenant = tenantId || DEFAULT_TENANT_ID;
+
+    // 调用飞书登录（传入 tenant_id）
+    const result = await feishuLogin(code, tenant);
 
     // 保存 session
     const sessionToken = result.token;
@@ -78,7 +88,7 @@ app.post('/api/auth/feishu', async (req, res) => {
       expiresAt: Date.now() + (result.expires_in || 7200) * 1000 // 默认 2 小时
     });
 
-    console.log('[API] 用户登录成功:', result.user.name);
+    console.log('[API] 用户登录成功:', result.user.name, 'Tenant:', tenant);
 
     res.json({
       success: true,
@@ -118,6 +128,7 @@ app.get('/api/user/info', authMiddleware, async (req, res) => {
 app.get('/api/user/week-stats', authMiddleware, async (req, res) => {
   try {
     const user = req.user;
+    const tenantId = req.tenantId || DEFAULT_TENANT_ID;
 
     // 计算本周五到本周四的日期范围
     const now = new Date();
@@ -135,10 +146,13 @@ app.get('/api/user/week-stats', authMiddleware, async (req, res) => {
 
     const weekStart = friday.toISOString().split('T')[0];
 
-    // 获取用户本周活动量
+    // 获取用户本周活动量（增加 tenant_id 过滤）
     const activities = await db.findAll('activities', {
+      tenant_id: tenantId,
       user_id: user.id,
-      activity_date: { $gte: weekStart }
+      activity_date: weekStart
+    }, {
+      orderBy: 'activity_date DESC'
     });
 
     const weekScore = activities
@@ -165,35 +179,36 @@ app.get('/api/user/week-stats', authMiddleware, async (req, res) => {
 app.get('/api/activities/today', authMiddleware, async (req, res) => {
   try {
     const user = req.user;
+    const tenantId = req.tenantId || DEFAULT_TENANT_ID;
     const date = req.query.date || new Date().toISOString().split('T')[0];
 
     const activity = await db.findOne('activities', {
+      tenant_id: tenantId,
       user_id: user.id,
       activity_date: date
     });
 
     if (!activity || !activity.is_submitted) {
-      return res.json({ success: true, data: [] });
+      return res.json({ success: true, data: {} });
     }
 
     // 返回所有有值的维度
-    const dimensions = {
-      new_leads: activity.new_leads,
-      referral: activity.referral,
-      invitation: activity.invitation,
-      sales_meeting: activity.sales_meeting,
-      recruit_meeting: activity.recruit_meeting,
-      business_plan: activity.business_plan,
-      deal: activity.deal,
-      eop_guest: activity.eop_guest,
-      cc_assessment: activity.cc_assessment,
-      training: activity.training
-    };
+    const dimensions = {};
+    if (activity.new_leads > 0) dimensions.new_leads = activity.new_leads;
+    if (activity.referral > 0) dimensions.referral = activity.referral;
+    if (activity.invitation > 0) dimensions.invitation = activity.invitation;
+    if (activity.sales_meeting > 0) dimensions.sales_meeting = activity.sales_meeting;
+    if (activity.recruit_meeting > 0) dimensions.recruit_meeting = activity.recruit_meeting;
+    if (activity.business_plan > 0) dimensions.business_plan = activity.business_plan;
+    if (activity.deal > 0) dimensions.deal = activity.deal;
+    if (activity.eop_guest > 0) dimensions.eop_guest = activity.eop_guest;
+    if (activity.cc_assessment > 0) dimensions.cc_assessment = activity.cc_assessment;
+    if (activity.training > 0) dimensions.training = activity.training;
 
     res.json({ success: true, data: dimensions });
   } catch (error) {
     console.error('[API] 获取活动数据失败:', error);
-    res.json({ success: true, data: [] });
+    res.json({ success: true, data: {} });
   }
 });
 
@@ -204,9 +219,10 @@ app.get('/api/activities/today', authMiddleware, async (req, res) => {
 app.post('/api/activities/submit', authMiddleware, async (req, res) => {
   try {
     const user = req.user;
+    const tenantId = req.tenantId || DEFAULT_TENANT_ID;
     const data = req.body;
 
-    console.log('[API] 提交活动量:', { user: user.name, ...data });
+    console.log('[API] 提交活动量:', { user: user.name, tenantId, ...data });
 
     // 计算总分
     const dimensionScores = {
@@ -222,8 +238,9 @@ app.post('/api/activities/submit', authMiddleware, async (req, res) => {
       return sum;
     }, 0);
 
-    // 保存或更新数据
+    // 保存或更新数据（增加 tenant_id）
     const activity = await db.upsert('activities', {
+      tenant_id: tenantId,
       user_id: user.id,
       activity_date: data.activity_date,
       new_leads: data.new_leads || 0,
@@ -240,7 +257,7 @@ app.post('/api/activities/submit', authMiddleware, async (req, res) => {
       is_submitted: data.is_submitted || 1,
       is_locked: 0,
       submitted_at: new Date().toISOString()
-    }, 'user_id, activity_date');
+    }, ['tenant_id', 'user_id', 'activity_date']);
 
     res.json({
       success: true,
@@ -262,8 +279,10 @@ app.post('/api/activities/submit', authMiddleware, async (req, res) => {
  * 获取团队统计
  * GET /api/team/stats
  */
-app.get('/api/team/stats', async (req, res) => {
+app.get('/api/team/stats', authMiddleware, async (req, res) => {
   try {
+    const tenantId = req.tenantId || DEFAULT_TENANT_ID;
+
     // 获取本周日期范围
     const now = new Date();
     const dayOfWeek = now.getDay();
@@ -276,10 +295,11 @@ app.get('/api/team/stats', async (req, res) => {
     friday.setDate(friday.getDate() + daysUntilFriday);
     const weekStart = friday.toISOString().split('T')[0];
 
-    // 获取团队统计数据
-    const users = await db.findAll('users', {});
+    // 获取团队统计数据（增加 tenant_id 过滤）
+    const users = await db.findAll('users', { tenant_id: tenantId });
     const activities = await db.findAll('activities', {
-      activity_date: { $gte: weekStart },
+      tenant_id: tenantId,
+      activity_date: weekStart,
       is_submitted: 1
     });
 
@@ -327,9 +347,13 @@ app.get('/api/team/stats', async (req, res) => {
  * 获取维度统计
  * GET /api/team/dimensions
  */
-app.get('/api/team/dimensions', async (req, res) => {
+app.get('/api/team/dimensions', authMiddleware, async (req, res) => {
   try {
-    const activities = await db.findAll('activities', { is_submitted: 1 });
+    const tenantId = req.tenantId || DEFAULT_TENANT_ID;
+    const activities = await db.findAll('activities', {
+      tenant_id: tenantId,
+      is_submitted: 1
+    });
 
     const dimensions = {
       new_leads: { count: 0, score: 0 },
@@ -369,10 +393,15 @@ app.get('/api/team/dimensions', async (req, res) => {
  * 获取排行榜
  * GET /api/team/ranking
  */
-app.get('/api/team/ranking', async (req, res) => {
+app.get('/api/team/ranking', authMiddleware, async (req, res) => {
   try {
-    const users = await db.findAll('users', {});
-    const activities = await db.findAll('activities', { is_submitted: 1 });
+    const tenantId = req.tenantId || DEFAULT_TENANT_ID;
+
+    const users = await db.findAll('users', { tenant_id: tenantId });
+    const activities = await db.findAll('activities', {
+      tenant_id: tenantId,
+      is_submitted: 1
+    });
 
     // 按用户汇总分数
     const userScores = {};

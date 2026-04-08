@@ -104,13 +104,18 @@ async function getUserInfo(accessToken) {
 }
 
 /**
- * 通过 union_id 获取或创建用户
+ * 通过 union_id 获取或创建用户（多租户版本）
+ * @param {Object} feishuUserInfo - 飞书用户信息
+ * @param {string} tenantId - 租户 ID
  */
-async function getOrCreateUser(feishuUserInfo) {
+async function getOrCreateUser(feishuUserInfo, tenantId) {
   const { union_id, open_id, name, avatar, mobile } = feishuUserInfo;
 
-  // 先查找是否存在
-  let user = await db.findOne('users', { feishu_union_id: union_id });
+  // 先查找是否存在（在同一租户内）
+  let user = await db.findOne('users', {
+    tenant_id: tenantId,
+    feishu_union_id: union_id
+  });
 
   if (user) {
     // 更新用户信息
@@ -125,10 +130,11 @@ async function getOrCreateUser(feishuUserInfo) {
     return user;
   }
 
-  // 创建新用户
-  const userId = 'user_' + union_id.slice(-8); // 生成简短的 user_id
+  // 创建新用户（使用 UUID）
+  const userId = crypto.randomUUID();
   user = await db.insert('users', {
     id: userId,
+    tenant_id: tenantId,
     name: name || '飞书用户',
     avatar: avatar || '😊',
     feishu_user_id: union_id,
@@ -139,16 +145,17 @@ async function getOrCreateUser(feishuUserInfo) {
     updated_at: new Date()
   });
 
-  console.log('[Auth] 创建新用户:', { userId, name, union_id });
+  console.log('[Auth] 创建新用户:', { userId, name, union_id, tenantId });
   return user;
 }
 
 /**
- * 处理飞书登录
+ * 处理飞书登录（多租户版本）
  * @param {string} code - 飞书授权码
+ * @param {string} tenantId - 租户 ID（从配置或域名获取）
  * @returns {Object} 用户信息和 token
  */
-export async function feishuLogin(code) {
+export async function feishuLogin(code, tenantId) {
   try {
     // 1. 获取 access_token
     const tokenData = await getAccessToken(code);
@@ -157,10 +164,10 @@ export async function feishuLogin(code) {
     // 2. 获取用户信息
     const feishuUser = await getUserInfo(accessToken);
 
-    // 3. 获取或创建本地用户
-    const user = await getOrCreateUser(feishuUser);
+    // 3. 获取或创建本地用户（传入 tenant_id）
+    const user = await getOrCreateUser(feishuUser, tenantId);
 
-    // 4. 生成会话 token（简单实现，实际应该用 JWT）
+    // 4. 生成会话 token
     const sessionToken = 'session_' + Date.now() + '_' + user.id;
 
     // 5. 保存 session（可以用 Redis，这里简单存内存）
@@ -169,6 +176,7 @@ export async function feishuLogin(code) {
     return {
       user: {
         id: user.id,
+        tenant_id: tenantId,
         name: user.name,
         avatar: user.avatar,
         feishu_user_id: user.feishu_user_id,
