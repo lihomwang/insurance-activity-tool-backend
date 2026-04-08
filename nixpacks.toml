@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["nodejs-18.x", "python3", "gcc"]
+nixPkgs = ["nodejs", "python3", "gcc"]
 
 [phases.install]
 cmds = ["npm install --legacy-peer-deps"]
