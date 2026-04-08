@@ -21,18 +21,19 @@ console.log('[Auth] H5 App ID:', H5_APP_ID);
 console.log('[Auth] H5 App Secret length:', H5_APP_SECRET?.length);
 
 /**
- * 使用授权码获取用户 access_token
+ * 使用授权码获取用户 access_token (OIDC 模式 - H5 网页应用)
  * 飞书文档：https://open.feishu.cn/document/ukzMzI4LzQyMDIyODM2
  */
 async function getAccessToken(code) {
   const appCredential = Buffer.from(`${H5_APP_ID}:${H5_APP_SECRET}`).toString('base64');
 
-  console.log('[Auth] Calling Feishu API with app_id:', H5_APP_ID);
+  console.log('[Auth] Calling Feishu OIDC API with app_id:', H5_APP_ID);
   console.log('[Auth] Auth header:', 'Basic ' + appCredential.substring(0, 20) + '...');
+  console.log('[Auth] Code:', code?.substring(0, 10) + '...');
 
   try {
     const response = await axios.post(
-      'https://open.feishu.cn/open-apis/authen/v1/access_token',
+      'https://open.feishu.cn/open-apis/authen/v1/oidc/access_token',
       {
         grant_type: 'authorization_code',
         code: code
@@ -45,7 +46,8 @@ async function getAccessToken(code) {
       }
     );
 
-    console.log('[Auth] Feishu API response:', response.data);
+    console.log('[Auth] Feishu API response code:', response.data.code);
+    console.log('[Auth] Feishu API response:', JSON.stringify(response.data));
 
     if (response.data.code !== 0) {
       console.error('[Auth] getAccessToken error:', response.data);
@@ -55,7 +57,7 @@ async function getAccessToken(code) {
     return response.data.data;
   } catch (error) {
     if (error.response) {
-      console.error('[Auth] HTTP error:', error.response.status, error.response.data);
+      console.error('[Auth] HTTP error:', error.response.status, JSON.stringify(error.response.data));
     }
     throw error;
   }
