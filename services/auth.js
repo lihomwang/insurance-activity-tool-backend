@@ -21,17 +21,38 @@ console.log('[Auth] H5 App ID:', H5_APP_ID);
 console.log('[Auth] H5 App Secret length:', H5_APP_SECRET?.length);
 
 /**
+ * 获取 App Access Token（应用级凭证）
+ */
+async function getAppAccessToken() {
+  const response = await axios.post(
+    'https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal',
+    {
+      app_id: H5_APP_ID,
+      app_secret: H5_APP_SECRET
+    }
+  );
+
+  if (response.data.code !== 0) {
+    throw new Error('获取 App Token 失败：' + response.data.msg);
+  }
+
+  return response.data.app_access_token;
+}
+
+/**
  * 使用授权码获取用户 access_token (OIDC 模式 - H5 网页应用)
  * 飞书文档：https://open.feishu.cn/document/ukzMzI4LzQyMDIyODM2
  */
 async function getAccessToken(code) {
-  const appCredential = Buffer.from(`${H5_APP_ID}:${H5_APP_SECRET}`).toString('base64');
-
   console.log('[Auth] Calling Feishu OIDC API with app_id:', H5_APP_ID);
-  console.log('[Auth] Auth header:', 'Basic ' + appCredential.substring(0, 20) + '...');
   console.log('[Auth] Code:', code?.substring(0, 10) + '...');
 
   try {
+    // 1. 先获取 App Access Token
+    const appAccessToken = await getAppAccessToken();
+    console.log('[Auth] Got App Access Token:', appAccessToken?.substring(0, 20) + '...');
+
+    // 2. 用 App Access Token 换取 User Access Token
     const response = await axios.post(
       'https://open.feishu.cn/open-apis/authen/v1/oidc/access_token',
       {
@@ -40,14 +61,13 @@ async function getAccessToken(code) {
       },
       {
         headers: {
-          'Authorization': 'Basic ' + appCredential,
+          'Authorization': 'Bearer ' + appAccessToken,
           'Content-Type': 'application/json'
         }
       }
     );
 
     console.log('[Auth] Feishu API response code:', response.data.code);
-    console.log('[Auth] Feishu API response:', JSON.stringify(response.data));
 
     if (response.data.code !== 0) {
       console.error('[Auth] getAccessToken error:', response.data);
