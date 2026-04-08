@@ -1,1 +1,8 @@
-nodejs
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "node servers/api-server.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
