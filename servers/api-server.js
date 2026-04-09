@@ -130,41 +130,69 @@ app.get('/api/user/info', authMiddleware, async (req, res) => {
 /**
  * 获取用户本周统计
  * GET /api/user/week-stats
+ * 统计周期：每周五到下周四
  */
 app.get('/api/user/week-stats', authMiddleware, async (req, res) => {
   try {
     const user = req.user;
     const tenantId = req.tenantId || DEFAULT_TENANT_ID;
 
-    // 计算本周五到本周四的日期范围
+    // 计算本周五到下周四的日期范围
     const now = new Date();
     const dayOfWeek = now.getDay();
+
+    // 计算到本周五的天数差值
+    // 周日 (0), 周一 (1), 周二 (2), 周三 (3), 周四 (4), 周五 (5), 周六 (6)
     let daysUntilFriday = (5 - dayOfWeek + 7) % 7;
-    if (dayOfWeek === 4 || dayOfWeek === 5) {
-      // 周四或周五，用本周五
-    } else {
+    if (dayOfWeek === 5 || dayOfWeek === 6) {
+      // 周五或周六，用本周五（已经过去）
       daysUntilFriday = daysUntilFriday - 7;
+    } else if (dayOfWeek === 0) {
+      // 周日，上周五
+      daysUntilFriday = -2;
     }
+    // 周一到周四，用本周五
 
     const friday = new Date(now);
     friday.setDate(friday.getDate() + daysUntilFriday);
     friday.setHours(0, 0, 0, 0);
 
-    const weekStart = friday.toISOString().split('T')[0];
+    // 下周四 = 周五 + 6 天
+    const thursdayNext = new Date(friday);
+    thursdayNext.setDate(thursdayNext.getDate() + 6);
+    thursdayNext.setHours(23, 59, 59, 999);
 
-    // 获取用户本周活动量
-    const activities = await db.findAll('activities', {
-      user_id: user.id,
-      activity_date: weekStart
-    }, {
-      orderBy: 'activity_date DESC'
+    const weekStart = friday.toISOString().split('T')[0];
+    const weekEnd = thursdayNext.toISOString().split('T')[0];
+
+    console.log('[API] week-stats:', {
+      user: user.name,
+      tenantId,
+      weekStart,
+      weekEnd,
+      dayOfWeek
     });
 
-    const weekScore = activities
-      .filter(a => a.is_submitted)
-      .reduce((sum, a) => sum + (a.total_score || 0), 0);
+    // 获取用户本周所有活动量（周五到周四）
+    const activities = await db.findAll('activities', {
+      tenant_id: tenantId,
+      user_id: user.id
+    });
 
-    const activityCount = activities.filter(a => a.is_submitted).length;
+    // 过滤日期范围内的数据
+    const weekActivities = activities.filter(a => {
+      return a.activity_date >= weekStart &&
+             a.activity_date <= weekEnd &&
+             a.is_submitted;
+    });
+
+    console.log('[API] 查询结果:', {
+      totalActivities: activities.length,
+      weekActivities: weekActivities.length
+    });
+
+    const weekScore = weekActivities.reduce((sum, a) => sum + (a.total_score || 0), 0);
+    const activityCount = weekActivities.length;
 
     res.json({
       success: true,
@@ -187,10 +215,19 @@ app.get('/api/activities/today', authMiddleware, async (req, res) => {
     const tenantId = req.tenantId || DEFAULT_TENANT_ID;
     const date = req.query.date || new Date().toISOString().split('T')[0];
 
+    console.log('[API] activities/today:', {
+      user: user.name,
+      tenantId,
+      date
+    });
+
     const activity = await db.findOne('activities', {
+      tenant_id: tenantId,
       user_id: user.id,
       activity_date: date
     });
+
+    console.log('[API] 查询结果:', activity);
 
     if (!activity || !activity.is_submitted) {
       return res.json({ success: true, data: {} });
@@ -282,33 +319,61 @@ app.post('/api/activities/submit', authMiddleware, async (req, res) => {
 /**
  * 获取团队统计
  * GET /api/team/stats
+ * 统计周期：每周五到下周四
  */
 app.get('/api/team/stats', authMiddleware, async (req, res) => {
   try {
     const tenantId = req.tenantId || DEFAULT_TENANT_ID;
 
-    // 获取本周日期范围
+    console.log('[API] team/stats:', { tenantId });
+
+    // 计算本周五到下周四的日期范围
     const now = new Date();
     const dayOfWeek = now.getDay();
+
     let daysUntilFriday = (5 - dayOfWeek + 7) % 7;
-    if (!(dayOfWeek === 4 || dayOfWeek === 5)) {
+    if (dayOfWeek === 5 || dayOfWeek === 6) {
       daysUntilFriday = daysUntilFriday - 7;
+    } else if (dayOfWeek === 0) {
+      daysUntilFriday = -2;
     }
 
     const friday = new Date(now);
     friday.setDate(friday.getDate() + daysUntilFriday);
-    const weekStart = friday.toISOString().split('T')[0];
+    friday.setHours(0, 0, 0, 0);
 
-    // 获取团队统计数据
-    const users = await db.findAll('users', {});
+    const thursdayNext = new Date(friday);
+    thursdayNext.setDate(thursdayNext.getDate() + 6);
+    thursdayNext.setHours(23, 59, 59, 999);
+
+    const weekStart = friday.toISOString().split('T')[0];
+    const weekEnd = thursdayNext.toISOString().split('T')[0];
+
+    console.log('[API] weekStart:', weekStart, 'weekEnd:', weekEnd);
+
+    // 获取当前租户的用户
+    const users = await db.findAll('users', { tenant_id: tenantId });
+
+    // 获取所有活动（不限制日期，前端过滤）
     const activities = await db.findAll('activities', {
-      activity_date: weekStart,
+      tenant_id: tenantId,
       is_submitted: 1
+    });
+
+    // 过滤周期内的数据
+    const weekActivities = activities.filter(a => {
+      return a.activity_date >= weekStart && a.activity_date <= weekEnd;
+    });
+
+    console.log('[API] 查询结果:', {
+      usersCount: users.length,
+      totalActivities: activities.length,
+      weekActivities: weekActivities.length
     });
 
     // 计算用户分数
     const userScores = {};
-    activities.forEach(a => {
+    weekActivities.forEach(a => {
       if (!userScores[a.user_id]) {
         userScores[a.user_id] = 0;
       }
@@ -349,13 +414,43 @@ app.get('/api/team/stats', authMiddleware, async (req, res) => {
 /**
  * 获取维度统计
  * GET /api/team/dimensions
+ * 统计周期：每周五到下周四
  */
 app.get('/api/team/dimensions', authMiddleware, async (req, res) => {
   try {
     const tenantId = req.tenantId || DEFAULT_TENANT_ID;
+
+    // 计算本周五到下周四的日期范围
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+
+    let daysUntilFriday = (5 - dayOfWeek + 7) % 7;
+    if (dayOfWeek === 5 || dayOfWeek === 6) {
+      daysUntilFriday = daysUntilFriday - 7;
+    } else if (dayOfWeek === 0) {
+      daysUntilFriday = -2;
+    }
+
+    const friday = new Date(now);
+    friday.setDate(friday.getDate() + daysUntilFriday);
+    friday.setHours(0, 0, 0, 0);
+
+    const thursdayNext = new Date(friday);
+    thursdayNext.setDate(thursdayNext.getDate() + 6);
+    thursdayNext.setHours(23, 59, 59, 999);
+
+    const weekStart = friday.toISOString().split('T')[0];
+    const weekEnd = thursdayNext.toISOString().split('T')[0];
+
+    // 获取当前租户的所有已提交活动
     const activities = await db.findAll('activities', {
       tenant_id: tenantId,
       is_submitted: 1
+    });
+
+    // 过滤周期内的数据
+    const weekActivities = activities.filter(a => {
+      return a.activity_date >= weekStart && a.activity_date <= weekEnd;
     });
 
     const dimensions = {
@@ -377,7 +472,7 @@ app.get('/api/team/dimensions', authMiddleware, async (req, res) => {
       cc_assessment: 5, training: 10
     };
 
-    activities.forEach(a => {
+    weekActivities.forEach(a => {
       Object.keys(dimensions).forEach(key => {
         const count = a[key] || 0;
         dimensions[key].count += count;
@@ -395,19 +490,57 @@ app.get('/api/team/dimensions', authMiddleware, async (req, res) => {
 /**
  * 获取排行榜
  * GET /api/team/ranking
+ * 统计周期：每周五到下周四
  */
 app.get('/api/team/ranking', authMiddleware, async (req, res) => {
   try {
     const tenantId = req.tenantId || DEFAULT_TENANT_ID;
 
-    const users = await db.findAll('users', {});
+    console.log('[API] team/ranking:', { tenantId });
+
+    // 计算本周五到下周四的日期范围
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+
+    let daysUntilFriday = (5 - dayOfWeek + 7) % 7;
+    if (dayOfWeek === 5 || dayOfWeek === 6) {
+      daysUntilFriday = daysUntilFriday - 7;
+    } else if (dayOfWeek === 0) {
+      daysUntilFriday = -2;
+    }
+
+    const friday = new Date(now);
+    friday.setDate(friday.getDate() + daysUntilFriday);
+    friday.setHours(0, 0, 0, 0);
+
+    const thursdayNext = new Date(friday);
+    thursdayNext.setDate(thursdayNext.getDate() + 6);
+    thursdayNext.setHours(23, 59, 59, 999);
+
+    const weekStart = friday.toISOString().split('T')[0];
+    const weekEnd = thursdayNext.toISOString().split('T')[0];
+
+    // 仅获取当前租户的用户和活动
+    const users = await db.findAll('users', { tenant_id: tenantId });
     const activities = await db.findAll('activities', {
+      tenant_id: tenantId,
       is_submitted: 1
+    });
+
+    // 过滤周期内的数据
+    const weekActivities = activities.filter(a => {
+      return a.activity_date >= weekStart && a.activity_date <= weekEnd;
+    });
+
+    console.log('[API] 查询结果:', {
+      usersCount: users.length,
+      totalActivities: activities.length,
+      weekActivities: weekActivities.length
     });
 
     // 按用户汇总分数
     const userScores = {};
-    activities.forEach(a => {
+    weekActivities.forEach(a => {
       if (!userScores[a.user_id]) {
         userScores[a.user_id] = 0;
       }
