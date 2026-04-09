@@ -149,26 +149,10 @@ async function handleUserReply(event) {
   };
 
   try {
-    const aiResult = await aiCoach.generateNextQuestion(messages, textContent, userData);
+    const aiResult = await aiCoach.generateNextMessage(messages, textContent);
 
-    // 发送下一个问题
-    const card = {
-      config: { wide_screen_mode: true },
-      header: { template: 'blue', title: { tag: 'plain_text', content: '🤖 AI 教练' } },
-      elements: [
-        {
-          tag: 'markdown',
-          content: aiResult.questions[0] || '您说得很好，请继续分享！'
-        },
-        { tag: 'hr' },
-        {
-          tag: 'markdown',
-          content: '💡 ' + (aiResult.summary || '继续思考，你会收获更多！')
-        }
-      ]
-    };
-
-    await feishu.sendInteractiveCard(chatId, card);
+    // 发送下一个问题（私信发送，不在群里回复）
+    await feishu.sendTextMessage(senderId, aiResult.message);
 
     // 更新对话记录
     messages.push({ role: 'assistant', content: aiResult.questions[0] });
@@ -181,8 +165,8 @@ async function handleUserReply(event) {
 
   } catch (error) {
     console.error('[Receive Message] Error generating response:', error.message);
-    // AI 失败时回复默认消息
-    await feishu.sendTextMessage(chatId, '感谢您的分享！AI 教练正在思考中，请稍后再试。');
+    // AI 失败时回复默认消息（私信）
+    await feishu.sendTextMessage(senderId, 'AI 教练正在思考中，请稍后再试。');
   }
 
   return { success: true };
