@@ -1,0 +1,39 @@
+{
+  "name": "insurance-activity-tool-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "保险活动量管理工具 - AI 教练后端系统",
+  "main": "functions/index.js",
+  "scripts": {
+    "dev": "node --watch functions/index.js",
+    "start": "node servers/api-server.js",
+    "test": "node tests/api.test.js",
+    "db:init": "node scripts/init-db.js",
+    "db:migrate": "node scripts/migrate-db.js",
+    "deploy": "feishu function deploy",
+    "long-connection": "node scripts/lark-long-connection-official.js"
+  },
+  "keywords": [
+    "feishu",
+    "lark",
+    "insurance",
+    "ai-coach"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.18.0",
+    "@larksuiteoapi/node-sdk": "^1.60.0",
+    "axios": "^1.6.0",
+    "better-sqlite3": "^12.8.0",
+    "dayjs": "^1.11.10",
+    "dotenv": "^16.3.1",
+    "express": "^5.2.1",
+    "node-cron": "^3.0.3",
+    "pg": "^8.20.0",
+    "ws": "^8.20.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs", "python3", "gcc"]
+
+[phases.install]
+cmds = ["npm install --legacy-peer-deps"]
+
+[phases.build]
+cmds = ["echo 'Build complete'"]
+
+[start]
+cmd = "node servers/api-server.js"

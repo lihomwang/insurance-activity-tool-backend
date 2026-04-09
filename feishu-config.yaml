@@ -1,0 +1,128 @@
+# 飞书云函数部署配置
+# 用于 insurance-activity-tool-backend
+
+version: '1.0.0'
+functions:
+  # H5 应用 API - 统一入口
+  - name: h5-api
+    handler: functions/api/index.handler
+    runtime: Node.js 18
+    memory: 512
+    timeout: 30
+    environment:
+      - key: NODE_ENV
+        value: production
+      - key: DASHSCOPE_API_KEY
+        value: sk-1697fef9d8b843f1a12bebce6cc64fc8
+      - key: DASHSCOPE_MODEL
+        value: qwen-plus
+      - key: AI_PROVIDER
+        value: dashscope
+    triggers:
+      - type: HTTP
+        config:
+          path: /api
+          methods:
+            - GET
+            - POST
+
+  # 活动量 API
+  - name: activity-api
+    handler: functions/activity/index.handler
+    runtime: Node.js 18
+    memory: 256
+    timeout: 30
+    environment:
+      - key: NODE_ENV
+        value: production
+      - key: DASHSCOPE_API_KEY
+        value: sk-1697fef9d8b843f1a12bebce6cc64fc8
+      - key: DASHSCOPE_MODEL
+        value: qwen-plus
+    triggers:
+      - type: HTTP
+        config:
+          path: /api/activity
+          methods:
+            - POST
+
+  # AI 教练 API (飞书机器人回调)
+  - name: ai-chat-api
+    handler: functions/ai-chat/index.handler
+    runtime: Node.js 18
+    memory: 512
+    timeout: 60
+    environment:
+      - key: NODE_ENV
+        value: production
+      - key: DASHSCOPE_API_KEY
+        value: sk-1697fef9d8b843f1a12bebce6cc64fc8
+      - key: AI_PROVIDER
+        value: dashscope
+    triggers:
+      - type: HTTP
+        config:
+          path: /api/ai-chat
+          methods:
+            - POST
+
+  # 管理员 API
+  - name: admin-api
+    handler: functions/admin/index.handler
+    runtime: Node.js 18
+    memory: 256
+    timeout: 30
+    environment:
+      - key: NODE_ENV
+        value: production
+      - key: DASHSCOPE_API_KEY
+        value: sk-1697fef9d8b843f1a12bebce6cc64fc8
+    triggers:
+      - type: HTTP
+        config:
+          path: /api/admin
+          methods:
+            - GET
+            - POST
+
+  # 定时任务 API
+  - name: scheduler-api
+    handler: functions/scheduler/index.handler
+    runtime: Node.js 18
+    memory: 512
+    timeout: 120
+    environment:
+      - key: NODE_ENV
+        value: production
+      - key: DASHSCOPE_API_KEY
+        value: sk-1697fef9d8b843f1a12bebce6cc64fc8
+    triggers:
+      - type: HTTP
+        config:
+          path: /api/scheduler
+          methods:
+            - POST
+      - type: Timer
+        config:
+          cron: '0 21 * * *'  # 每天 21:00 锁定
+          name: daily-lock
+          payload:
+            task: lock
+      - type: Timer
+        config:
+          cron: '5 21 * * *'  # 每天 21:05 AI 教练
+          name: ai-coach
+          payload:
+            task: ai_coach
+      - type: Timer
+        config:
+          cron: '0 23 * * *'  # 每天 23:00 每日分析
+          name: daily-analytics
+          payload:
+            task: daily_analytics
+      - type: Timer
+        config:
+          cron: '0 22 * * 4'  # 每周四 22:00 周报
+          name: weekly-report
+          payload:
+            task: weekly_report
