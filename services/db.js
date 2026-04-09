@@ -4,10 +4,16 @@
 
 const usePostgres = !!process.env.DATABASE_URL;
 
+let dbModule = null;
+
 if (usePostgres) {
   console.log('[DB] Using PostgreSQL');
-  export { default } from './db-postgres.js';
+  // 动态导入 PostgreSQL
+  dbModule = await import('./db-postgres.js');
 } else {
   console.log('[DB] Using SQLite');
-  export { default } from './db-sqlite.js';
+  // 动态导入 SQLite
+  dbModule = await import('./db-sqlite.js');
 }
+
+export default dbModule.default;
