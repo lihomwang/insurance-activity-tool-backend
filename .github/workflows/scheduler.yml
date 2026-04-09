@@ -1,0 +1,111 @@
+# 定时任务 - 千老师 AI 教练自动化
+# 用于定时调用云函数 HTTP 接口
+
+name: Scheduler
+
+on:
+  # 每天早上 9:00 发送群提醒（北京时间 = UTC+8，所以 UTC 时间是 1:00）
+  morning_reminder:
+    schedule:
+      - cron: '0 1 * * *'
+
+  # 每周五早上 9:00 数据清零
+  reset_weekly:
+    schedule:
+      - cron: '0 1 * * 5'
+
+  # 每天晚上 21:00 锁定数据（北京时间 21:00 = UTC 13:00）
+  lock_daily:
+    schedule:
+      - cron: '0 13 * * *'
+
+  # 每天晚上 21:05 触发 AI 教练（千老师私信复盘）
+  ai_coach:
+    schedule:
+      - cron: '5 13 * * *'
+
+  # 每天晚上 23:00 生成日报
+  daily_analytics:
+    schedule:
+      - cron: '0 15 * * *'
+
+  # 每周四晚上 22:00 生成周报
+  weekly_report:
+    schedule:
+      - cron: '0 14 * * 4'
+
+  # 允许手动触发
+  workflow_dispatch:
+    inputs:
+      task:
+        description: '要执行的任务'
+        required: true
+        default: 'morning_reminder'
+        type: choice
+        options:
+          - morning_reminder
+          - reset_weekly
+          - lock_daily
+          - ai_coach
+          - daily_analytics
+          - weekly_report
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 执行定时任务
+        run: |
+          TASK="${{ github.event.inputs.task || 'scheduled' }}"
+
+          # 获取云函数 HTTP 触发器 URL
+          # 注意：需要替换成实际的云函数 URL
+          WEBHOOK_URL="${{ secrets.CLOUD_FUNCTION_URL }}"
+
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "错误：请设置 CLOUD_FUNCTION_URL secret"
+            exit 1
+          fi
+
+          # 根据时间确定任务类型
+          HOUR=$(date -u +%H)
+          MINUTE=$(date -u +%M)
+          DAY_OF_WEEK=$(date -u +%u)
+
+          # 北京时间 = UTC + 8
+          BEIJING_HOUR=$(( (10#$HOUR + 8) % 24 ))
+
+          echo "当前 UTC 时间：${HOUR}:${MINUTE}"
+          echo "当前北京时间：${BEIJING_HOUR}:${MINUTE}"
+          echo "星期：${DAY_OF_WEEK}"
+
+          # 执行对应的任务
+          if [ "$TASK" = "scheduled" ]; then
+            # 根据时间自动选择任务
+            if [ "$BEIJING_HOUR" = "9" ] && [ "$MINUTE" = "00" ]; then
+              TASK_NAME="morning_reminder"
+            elif [ "$BEIJING_HOUR" = "21" ] && [ "$MINUTE" = "00" ]; then
+              TASK_NAME="lock_daily"
+            elif [ "$BEIJING_HOUR" = "21" ] && [ "$MINUTE" = "05" ]; then
+              TASK_NAME="ai_coach"
+            elif [ "$BEIJING_HOUR" = "23" ] && [ "$MINUTE" = "00" ]; then
+              TASK_NAME="daily_analytics"
+            elif [ "$BEIJING_HOUR" = "22" ] && [ "$MINUTE" = "00" ] && [ "$DAY_OF_WEEK" = "4" ]; then
+              TASK_NAME="weekly_report"
+            elif [ "$BEIJING_HOUR" = "9" ] && [ "$MINUTE" = "00" ] && [ "$DAY_OF_WEEK" = "5" ]; then
+              TASK_NAME="reset_weekly"
+            else
+              echo "没有匹配到定时任务"
+              exit 0
+            fi
+          else
+            TASK_NAME="$TASK"
+          fi
+
+          echo "执行任务：${TASK_NAME}"
+
+          # 调用云函数
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"task\": \"${TASK_NAME}\"}" \
+            -v
