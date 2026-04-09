@@ -91,7 +91,8 @@ async function handleUserReply(event) {
       return { success: true };
     }
 
-    // 被@了，回复用户（使用预设回复，AI 由飞书 CLI MCP 处理）
+    // 被@了，回复用户
+    // 注意：AI 回复由飞书 CLI MCP 的 Claude Code 处理，此处仅返回基础信息
     const user = await db.findOne('users', { feishu_union_id: senderId });
     if (!user) {
       await feishu.sendTextMessage(chatId, '@' + (sender.name || '您') + ' 我还不认识你呢～请先在活动量 H5 中完成绑定，我才能为你服务哦！');
