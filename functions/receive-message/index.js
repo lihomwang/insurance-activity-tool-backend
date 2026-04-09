@@ -153,32 +153,68 @@ ${contextPrompt}
 
     try {
       const axios = require('axios');
-      const response = await axios.post(
-        'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-        {
-          model: 'qwen-plus',
-          messages: [
-            {
-              role: 'system',
-              content: '你是一位资深的保险销售导师千老师，专业温暖真诚。'
-            },
-            {
-              role: 'user',
-              content: userPrompt
-            }
-          ],
-          temperature: 0.3,
-          max_tokens: 150
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${process.env.DASHSCOPE_API_KEY}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
 
-      const aiReply = response.data.choices[0].message.content.trim();
+      // 优先使用 Claude
+      const useClaude = process.env.USE_CLAUDE === 'true';
+      const anthropicKey = process.env.ANTHROPIC_API_KEY;
+      const dashscopeKey = process.env.DASHSCOPE_API_KEY;
+
+      let aiReply = '';
+
+      if (useClaude && anthropicKey) {
+        // 调用 Claude API
+        const response = await axios.post(
+          'https://api.anthropic.com/v1/messages',
+          {
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 200,
+            system: '你是一位资深的保险销售导师千老师，专业温暖真诚。',
+            messages: [
+              {
+                role: 'user',
+                content: userPrompt
+              }
+            ]
+          },
+          {
+            headers: {
+              'x-api-key': anthropicKey,
+              'anthropic-version': '2023-06-01',
+              'content-type': 'application/json'
+            }
+          }
+        );
+        aiReply = response.data.content[0].text.trim();
+      } else if (dashscopeKey) {
+        // 降级使用通义千问
+        const response = await axios.post(
+          'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+          {
+            model: 'qwen-plus',
+            messages: [
+              {
+                role: 'system',
+                content: '你是一位资深的保险销售导师千老师，专业温暖真诚。'
+              },
+              {
+                role: 'user',
+                content: userPrompt
+              }
+            ],
+            temperature: 0.3,
+            max_tokens: 150
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${dashscopeKey}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+        aiReply = response.data.choices[0].message.content.trim();
+      } else {
+        throw new Error('No AI provider configured');
+      }
 
       // 如果是数据查询类问题，补充链接
       if (lowerText.includes('排行') || lowerText.includes('填报') || lowerText.includes('数据')) {
