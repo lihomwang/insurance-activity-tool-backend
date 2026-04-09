@@ -91,7 +91,7 @@ async function handleUserReply(event) {
       return { success: true };
     }
 
-    // 被@了，回复用户
+    // 被@了，用 AI 回复用户
     const user = await db.findOne('users', { feishu_union_id: senderId });
     if (!user) {
       await feishu.sendTextMessage(chatId, '@' + (sender.name || '您') + ' 我还不认识你呢～请先在活动量 H5 中完成绑定，我才能为你服务哦！');
@@ -106,30 +106,102 @@ async function handleUserReply(event) {
       is_submitted: 1
     });
 
-    // 简单智能回复
+    // 用 AI 生成回复
     const lowerText = textContent.toLowerCase();
-    let reply = '';
+    let contextPrompt = '';
 
     if (lowerText.includes('多少人') || lowerText.includes('提交') || lowerText.includes('统计')) {
-      // 查询团队提交统计
       const activities = await db.findAll('activities', {
         activity_date: today,
         is_submitted: 1
       });
       const submittedCount = activities.length;
-      reply = `今天已有 ${submittedCount} 位伙伴提交了活动量数据。还没提交的伙伴记得在 24:00 前完成填报哦，千老师会在 21:00 和 24:05 分两批找大家复盘～`;
+      contextPrompt = `用户在群里询问今天有多少人提交了活动量数据。今天已有 ${submittedCount} 人提交。
+请用温暖专业的语气回复，鼓励大家继续坚持。回复要简洁，1-2 句话即可。`;
     } else if (lowerText.includes('排行') || lowerText.includes('排名') || lowerText.includes('第一')) {
-      reply = `回复【排行】查看团队排行榜！或者点击 https://happylife888.netlify.app/ 查看详细数据～`;
+      contextPrompt = `用户在群里询问排行榜。
+请回复查看排行榜的方式，鼓励大家争优创先。回复要简洁温暖，1-2 句话即可。`;
     } else if (lowerText.includes('填报') || lowerText.includes('提交') || lowerText.includes('入口')) {
-      reply = `填报入口：https://happylife888.netlify.app/ \n\n填报时间：每天 9:00 - 24:00\n千老师会在 21:00 和 24:05 分两批找大家复盘当日数据～`;
+      contextPrompt = `用户在群里询问填报入口或时间。
+请提供填报入口链接和时间，温和提醒大家记得填报。回复简洁，1-2 句话即可。`;
     } else if (lowerText.includes('数据') || lowerText.includes('我的')) {
-      reply = `查看我的数据：https://happylife888.netlify.app/ \n\n登录后即可查看你的活动量记录和团队排行榜～`;
+      contextPrompt = `用户想查看自己的数据。
+请告诉用户如何查看个人数据，语气温暖鼓励。1-2 句话即可。`;
     } else {
-      // 通用回复
-      reply = `@${user.name || '伙伴'} 你好呀！我在呢～\n\n如需查询数据或填报活动量，请访问：https://happylife888.netlify.app/\n\n填报时间：9:00 - 24:00\n千老师会在 21:00 和 24:05 分两批私信复盘哦～`;
+      contextPrompt = `用户在群里问了一个问题："${textContent}"
+请以保险销售导师"千老师"的身份回复。语气温暖、专业、简洁，像微信聊天。1-2 句话即可。`;
     }
 
-    await feishu.sendTextMessage(chatId, reply);
+    const userPrompt = `你是一位资深的保险销售导师，名字叫"千老师"。你有 20 年保险销售经验，带过上千个徒弟。
+
+你的特点：
+- 专业、温暖、真诚
+- 说话简洁有力，像发微信
+- 共情能力强，能理解销售的压力和困难
+- 善于发现对方的优点，真诚地肯定
+
+说话风格：
+- 简洁、温暖、专业
+- 用口语，像发微信，不要用书面语
+- 不要用网络流行语，不要卖萌
+- 每次只说 1-2 句话
+- 不要使用 emoji，保持专业形象
+
+${contextPrompt}
+
+请返回一条回复，简洁有力。`;
+
+    try {
+      const axios = require('axios');
+      const response = await axios.post(
+        'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+        {
+          model: 'qwen-plus',
+          messages: [
+            {
+              role: 'system',
+              content: '你是一位资深的保险销售导师千老师，专业温暖真诚。'
+            },
+            {
+              role: 'user',
+              content: userPrompt
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 150
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${process.env.DASHSCOPE_API_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      const aiReply = response.data.choices[0].message.content.trim();
+
+      // 如果是数据查询类问题，补充链接
+      if (lowerText.includes('排行') || lowerText.includes('填报') || lowerText.includes('数据')) {
+        await feishu.sendTextMessage(chatId, aiReply + '\n\n访问：https://happylife888.netlify.app/');
+      } else {
+        await feishu.sendTextMessage(chatId, aiReply);
+      }
+    } catch (error) {
+      console.error('[AI Group Reply] Error:', error.message);
+      // AI 失败时用备用回复
+      let fallback = '';
+      if (lowerText.includes('多少人') || lowerText.includes('提交') || lowerText.includes('统计')) {
+        fallback = '今天已有不少伙伴提交了活动量数据，为大家的坚持点赞！还没提交的伙伴记得在 24:00 前完成填报哦～';
+      } else if (lowerText.includes('排行')) {
+        fallback = '回复【排行】查看团队排行榜！或者访问 https://happylife888.netlify.app/ 查看详细数据～';
+      } else if (lowerText.includes('填报')) {
+        fallback = '填报入口：https://happylife888.netlify.app/\n填报时间：每天 9:00 - 24:00';
+      } else {
+        fallback = '你好呀！有任何问题都可以问我，或者访问 https://happylife888.netlify.app/ 查看数据～';
+      }
+      await feishu.sendTextMessage(chatId, fallback);
+    }
+
     return { success: true };
   }
 
