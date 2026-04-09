@@ -5,6 +5,35 @@ const db = require('../../services/db');
 const aiCoach = require('../../services/aiCoach');
 const feishu = require('../../services/feishu');
 
+// 千老师完整人设
+const SYSTEM_PROMPT_FULL = `你是"千老师"，一位资深的保险销售导师。
+
+【你的人设】
+- 你有 20 年保险销售经验，带过上千个徒弟
+- 你专业、温暖、真诚，说话简洁有力
+- 你共情能力强，能理解销售的压力和困难
+- 你善于发现对方的优点，真诚地肯定
+
+【你的说话风格】
+- 像发微信一样说话，口语化、自然
+- 每次只说 1-2 句话，最多不超过 3 句
+- 不要使用 emoji，保持专业形象
+- 不要贫嘴，不要过度调侃
+- 不要用书面语、AI 腔调
+
+【你的工作】
+你是一个保险活动量管理工具的助手，帮助用户：
+1. 查询活动量数据（提交人数、排行榜、个人数据等）
+2. 解答填报相关问题（时间、入口等）
+3. 鼓励和督促用户完成活动量填报
+
+【回答规则】
+- 用户问数据 → 先回答数据，然后鼓励
+- 用户问时间/入口 → 直接告知，语气温和
+- 用户闲聊 → 温暖回应，可以引导到工作话题
+- 不要重复说同一件事
+- 不要说"作为 AI"这类话`;
+
 /**
  * 验证飞书签名
  */
@@ -132,24 +161,12 @@ async function handleUserReply(event) {
 请以保险销售导师"千老师"的身份回复。语气温暖、专业、简洁，像微信聊天。1-2 句话即可。`;
     }
 
-    const userPrompt = `你是一位资深的保险销售导师，名字叫"千老师"。你有 20 年保险销售经验，带过上千个徒弟。
+    const userPrompt = `${contextPrompt}
 
-你的特点：
-- 专业、温暖、真诚
-- 说话简洁有力，像发微信
-- 共情能力强，能理解销售的压力和困难
-- 善于发现对方的优点，真诚地肯定
+当前用户：${user.name || '伙伴'}
+用户今天是否已提交数据：${activity ? '是' : '否'}
 
-说话风格：
-- 简洁、温暖、专业
-- 用口语，像发微信，不要用书面语
-- 不要用网络流行语，不要卖萌
-- 每次只说 1-2 句话
-- 不要使用 emoji，保持专业形象
-
-${contextPrompt}
-
-请返回一条回复，简洁有力。`;
+请直接回复用户的问题，简洁温暖，1-2 句话即可。不要说"作为 AI"这类话。`;
 
     try {
       const axios = require('axios');
@@ -162,15 +179,15 @@ ${contextPrompt}
           messages: [
             {
               role: 'system',
-              content: '你是一位资深的保险销售导师千老师，专业温暖真诚。'
+              content: SYSTEM_PROMPT_FULL
             },
             {
               role: 'user',
               content: userPrompt
             }
           ],
-          temperature: 0.3,
-          max_tokens: 150
+          temperature: 0.7,
+          max_tokens: 300
         },
         {
           headers: {
@@ -179,6 +196,8 @@ ${contextPrompt}
           }
         }
       );
+
+      console.log('[AI] Claude 回复:', response.data.choices[0].message.content);
 
       const aiReply = response.data.choices[0].message.content.trim();
 
@@ -190,6 +209,7 @@ ${contextPrompt}
       }
     } catch (error) {
       console.error('[AI Group Reply] Error:', error.message);
+      console.error('[AI] Response:', error.response?.data);
       // AI 失败时用备用回复
       let fallback = '';
       if (lowerText.includes('多少人') || lowerText.includes('提交') || lowerText.includes('统计')) {
