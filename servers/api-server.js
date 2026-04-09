@@ -8,6 +8,7 @@ import tenantService from '../services/tenant.js';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import jwt from 'jsonwebtoken';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -20,6 +21,9 @@ const PORT = process.env.PORT || 3000;
 
 // 默认租户 ID（从环境变量获取，支持多租户后每个租户有自己的 ID）
 const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || '00000000-0000-0000-0000-000000000001';
+
+// JWT 密钥（生产环境应该用环境变量）
+const JWT_SECRET = process.env.JWT_SECRET || 'insurance-activity-tool-secret-key-2026';
 
 app.use(express.json());
 
@@ -37,11 +41,8 @@ app.use((req, res, next) => {
 // 租户中间件（在所有需要认证的 API 之前使用）
 app.use(tenantService.tenantMiddleware);
 
-// 临时 session 存储（生产环境应该用 Redis）
-const sessions = new Map();
-
 /**
- * 验证 token 中间件
+ * JWT Token 中间件
  */
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -50,14 +51,13 @@ function authMiddleware(req, res, next) {
     return res.status(401).json({ success: false, message: '请先登录' });
   }
 
-  const session = sessions.get(token);
-  if (!session || session.expiresAt < Date.now()) {
-    sessions.delete(token);
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
     return res.status(401).json({ success: false, message: '登录已过期' });
   }
-
-  req.user = session.user;
-  next();
 }
 
 // ==================== 认证接口 ====================
@@ -81,19 +81,25 @@ app.post('/api/auth/feishu', async (req, res) => {
     // 调用飞书登录（传入 tenant_id）
     const result = await feishuLogin(code, tenant);
 
-    // 保存 session
-    const sessionToken = result.token;
-    sessions.set(sessionToken, {
-      user: result.user,
-      expiresAt: Date.now() + (result.expires_in || 7200) * 1000 // 默认 2 小时
-    });
+    // 生成 JWT token（有效期 7 天）
+    const token = jwt.sign(
+      {
+        id: result.user.id,
+        tenant_id: result.user.tenant_id,
+        name: result.user.name,
+        avatar: result.user.avatar,
+        feishu_user_id: result.user.feishu_user_id
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
     console.log('[API] 用户登录成功:', result.user.name, 'Tenant:', tenant);
 
     res.json({
       success: true,
       user: result.user,
-      token: sessionToken
+      token: token
     });
   } catch (error) {
     console.error('[API] 飞书登录失败:', error);
