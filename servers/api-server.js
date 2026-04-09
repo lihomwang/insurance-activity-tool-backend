@@ -242,8 +242,9 @@ app.post('/api/activities/submit', authMiddleware, async (req, res) => {
       return sum;
     }, 0);
 
-    // 保存或更新数据
+    // 保存或更新数据（需要包含 tenant_id 在冲突列中）
     const activity = await db.upsert('activities', {
+      tenant_id: tenantId,
       user_id: user.id,
       activity_date: data.activity_date,
       new_leads: data.new_leads || 0,
@@ -260,7 +261,7 @@ app.post('/api/activities/submit', authMiddleware, async (req, res) => {
       is_submitted: data.is_submitted || 1,
       is_locked: 0,
       submitted_at: new Date().toISOString()
-    }, ['user_id', 'activity_date']);
+    }, ['tenant_id', 'user_id', 'activity_date']);
 
     res.json({
       success: true,
