@@ -154,11 +154,11 @@ ${contextPrompt}
     try {
       const axios = require('axios');
 
-      // 使用阿里百炼 Claude API
+      // 使用通义千问（安全合规）
       const response = await axios.post(
         'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
         {
-          model: 'claude-sonnet-4-20250514',  // 阿里百炼提供的 Claude 模型
+          model: 'qwen-plus',
           messages: [
             {
               role: 'system',
