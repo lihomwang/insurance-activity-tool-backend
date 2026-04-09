@@ -57,6 +57,7 @@ async function handleUserReply(event) {
   const chatId = message.chat_id;
   const messageType = message.message_type;
   const messageContent = message.content;
+  const chatType = message.chat_type || 'group'; // 'group' or 'p2p'
 
   // 解析消息内容
   let textContent = '';
@@ -79,17 +80,74 @@ async function handleUserReply(event) {
 
   console.log(`[Receive Message] User ${senderId} sent: ${textContent}`);
 
-  // 查询用户
-  const user = await db.findOne('users', { feishu_user_id: senderId });
-  if (!user) {
-    console.log(`[Receive Message] User not found: ${senderId}`);
-    // 回复提示
-    await feishu.sendTextMessage(
-      chatId,
-      '您好！我还没绑定您的账号。请先在活动量管理工具中完成绑定。',
-      chatId
-    );
+  // ==================== 群消息处理 ====================
+  if (chatType === 'group') {
+    // 检查是否有人@机器人
+    const mentionKeys = message.mention_info?.mention_keys || [];
+    const isMentionBot = mentionKeys.some(key => key === 'all' || key.includes('bot') || key.includes('robot'));
+
+    if (!isMentionBot) {
+      // 群里普通消息，不回复
+      return { success: true };
+    }
+
+    // 被@了，回复用户
+    const user = await db.findOne('users', { feishu_union_id: senderId });
+    if (!user) {
+      await feishu.sendTextMessage(chatId, '@' + (sender.name || '您') + ' 我还不认识你呢～请先在活动量 H5 中完成绑定，我才能为你服务哦！');
+      return { success: true };
+    }
+
+    // 查询今日是否已提交数据
+    const today = new Date().toISOString().split('T')[0];
+    const activity = await db.findOne('activities', {
+      user_id: user.id,
+      activity_date: today,
+      is_submitted: 1
+    });
+
+    // 简单智能回复
+    const lowerText = textContent.toLowerCase();
+    let reply = '';
+
+    if (lowerText.includes('多少人') || lowerText.includes('提交') || lowerText.includes('统计')) {
+      // 查询团队提交统计
+      const activities = await db.findAll('activities', {
+        activity_date: today,
+        is_submitted: 1
+      });
+      const submittedCount = activities.length;
+      reply = `今天已有 ${submittedCount} 位伙伴提交了活动量数据。还没提交的伙伴记得在 24:00 前完成填报哦，千老师会在 21:00 和 24:05 分两批找大家复盘～`;
+    } else if (lowerText.includes('排行') || lowerText.includes('排名') || lowerText.includes('第一')) {
+      reply = `回复【排行】查看团队排行榜！或者点击 https://happylife888.netlify.app/ 查看详细数据～`;
+    } else if (lowerText.includes('填报') || lowerText.includes('提交') || lowerText.includes('入口')) {
+      reply = `填报入口：https://happylife888.netlify.app/ \n\n填报时间：每天 9:00 - 24:00\n千老师会在 21:00 和 24:05 分两批找大家复盘当日数据～`;
+    } else if (lowerText.includes('数据') || lowerText.includes('我的')) {
+      reply = `查看我的数据：https://happylife888.netlify.app/ \n\n登录后即可查看你的活动量记录和团队排行榜～`;
+    } else {
+      // 通用回复
+      reply = `@${user.name || '伙伴'} 你好呀！我在呢～\n\n如需查询数据或填报活动量，请访问：https://happylife888.netlify.app/\n\n填报时间：9:00 - 24:00\n千老师会在 21:00 和 24:05 分两批私信复盘哦～`;
+    }
+
+    await feishu.sendTextMessage(chatId, reply);
     return { success: true };
+  }
+
+  // ==================== 私信处理（AI 教练对话）=====================
+  // 查询用户（同时检查 feishu_user_id 和 feishu_union_id）
+  const user = await db.findOne('users', { feishu_union_id: senderId });
+  if (!user) {
+    // 尝试用 feishu_user_id 再查一次
+    const user2 = await db.findOne('users', { feishu_user_id: senderId });
+    if (!user2) {
+      console.log(`[Receive Message] User not found: ${senderId}`);
+      await feishu.sendTextMessage(
+        chatId,
+        '您好！我还没绑定您的账号。请先在活动量管理工具中完成绑定。'
+      );
+      return { success: true };
+    }
+    user = user2;
   }
 
   // 查找进行中的 AI 对话
@@ -109,25 +167,11 @@ async function handleUserReply(event) {
   // 获取对话历史
   const messages = JSON.parse(conversation.messages || '[]');
 
-  // 检查是否已达到最大问题数（最多 3 个问题）
+  // 检查是否已达到最大问题数（最多 10 个引导式提问）
   const questionCount = conversation.question_count || 0;
-  if (questionCount >= 3) {
-    // 对话已结束，回复感谢
-    await feishu.sendInteractiveCard(chatId, {
-      config: { wide_screen_mode: true },
-      header: { template: 'green', title: { tag: 'plain_text', content: '🤖 AI 教练' } },
-      elements: [
-        {
-          tag: 'markdown',
-          content: '今天的对话就到这里！\\n\\n感谢您的分享，相信这次对话对您有帮助。\\n\\n明天继续努力，AI 教练会再次与您交流！'
-        },
-        { tag: 'hr' },
-        {
-          tag: 'markdown',
-          content: '💪 **加油，期待明天的进步！**'
-        }
-      ]
-    });
+  if (questionCount >= 10) {
+    // 对话已结束，回复感谢（私信发送）
+    await feishu.sendTextMessage(senderId, '今天的对话就到这里！感谢你的分享，相信这次对话对你有帮助。明天继续努力，千老师会再次与你交流！加油！');
 
     // 更新对话状态为已完成
     await db.update('ai_conversations', { id: conversation.id }, {

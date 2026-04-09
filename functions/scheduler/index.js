@@ -23,12 +23,14 @@ async function lockDailyActivities() {
 }
 
 /**
- * 触发 AI 教练对话 (每天 21:05 执行)
- * 千老师私信复盘，每人最多 5 轮对话
+ * 触发 AI 教练对话 (每天 21:05 和 24:05 执行)
+ * 第一批 21:05：千老师私信复盘（针对 21:00 前提交的数据）
+ * 第二批 24:05：千老师私信复盘（针对 21:00-24:00 提交的数据）
+ * 每人最多 10 轮引导式提问
  */
-async function triggerAICoach() {
+async function triggerAICoach(batch = 'first') {
   try {
-    await aiCoach.startAICoachConversations();
+    await aiCoach.startAICoachConversations(batch);
     return { success: true };
   } catch (error) {
     console.error('[Scheduler] AI Coach error:', error);
@@ -170,8 +172,11 @@ exports.handler = async (event, context) => {
       case 'lock':
         result = await lockDailyActivities();
         break;
-      case 'ai_coach':  // 千老师私信复盘 (21:05)
-        result = await triggerAICoach();
+      case 'ai_coach':  // 千老师私信复盘 (21:05) - 第一批
+        result = await triggerAICoach('first');
+        break;
+      case 'ai_coach_second':  // 千老师私信复盘 (24:05) - 第二批
+        result = await triggerAICoach('second');
         break;
       case 'daily_analytics':
         result = await generateDailyAnalytics();

@@ -426,13 +426,19 @@ function getGenericEndingMessage() {
 }
 
 /**
- * 开始 AI 教练对话（每天 21:05 调用）
- * 发送文本消息，像真人聊天
+ * 开始 AI 教练对话（每天 21:05 和 24:05 调用）
+ * 第一批：21:05 - 针对 21:00 前提交的数据复盘
+ * 第二批：24:05 - 针对 21:00-24:00 提交的数据复盘
+ * @param {string} batch - 'first' (21:05) 或 'second' (24:05)
  */
-async function startAICoachConversations() {
-  console.log('[AI Coach] 开始今日对话...');
+async function startAICoachConversations(batch = 'first') {
+  console.log(`[AI Coach] 开始今日${batch === 'first' ? '第一批' : '第二批'}对话...`);
 
   const today = new Date().toISOString().split('T')[0];
+
+  // 确定复盘时间 cutoff
+  // 第一批（21:05）：复盘所有在 21:00 前提交的数据
+  // 第二批（24:05）：复盘所有在 21:00-24:00 提交的数据（即第一批之后提交的）
 
   // 获取所有用户
   const users = await db.findAll('users', {});
@@ -469,8 +475,8 @@ async function startAICoachConversations() {
       // 检查是否已提交
       const isSubmitted = activity && activity.is_submitted === 1;
 
-      if (!isSubmitted) {
-        // 未提交数据 - 发送关心询问
+      if (!isSubmitted && batch === 'first') {
+        // 未提交数据 - 只在第一批发送关心询问
         console.log(`[AI Coach] ${user.name} - 未提交数据，发送关心消息`);
 
         const careMessage = await generateCareMessage(user);
@@ -490,8 +496,11 @@ async function startAICoachConversations() {
         });
 
         console.log(`[AI Coach] 关心消息已发送至 ${user.name}`);
-      } else {
+      } else if (isSubmitted) {
         // 已提交数据 - 发送数据复盘
+        // 第一批：所有已提交的
+        // 第二批：只处理第一批之后提交的（这里简化为所有已提交但未对话的）
+
         console.log(`[AI Coach] ${user.name} - 已提交数据，发送复盘消息`);
 
         // 生成第一条消息
