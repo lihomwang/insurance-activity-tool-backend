@@ -1,12 +1,13 @@
 // scripts/lark-long-connection-official.js
 // 飞书长连接客户端 - 使用官方 SDK @larksuiteoapi/node-sdk
-// 配合 AI 教练使用
+// 配合 AI 教练使用（群聊使用 Claude API）
 
 import * as Lark from '@larksuiteoapi/node-sdk';
 import { config } from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { createRequire } from 'module';
+import axios from 'axios';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -19,10 +20,125 @@ config({ path: join(__dirname, '../.env.local'), override: true });
 const FEISHU_APP_ID = process.env.FEISHU_APP_ID || 'cli_a95a59999e78dcc0';
 const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET || 'oGkCG8FHYRxW3hNjVU3oceYgE3hYMkmE';
 
+// 阿里百炼 Claude API 配置
+const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY || 'sk-sp-87417cc737b44634b3883fb845effbd7';
+const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
+
+// 千老师 AI 人设
+const AI_SYSTEM_PROMPT = `你是"千老师"，一位资深的保险销售导师。
+
+【你的人设】
+- 你有 20 年保险销售经验，带过上千个徒弟
+- 你专业、温暖、真诚，说话简洁有力
+- 你共情能力强，能理解销售的压力和困难
+- 你善于发现对方的优点，真诚地肯定
+
+【你的说话风格】
+- 像发微信一样说话，口语化、自然
+- 每次只说 1-2 句话，最多不超过 3 句
+- 不要使用 emoji，保持专业形象
+- 不要贫嘴，不要过度调侃
+- 不要用书面语、AI 腔调
+
+【你的工作】
+你是一个保险活动量管理工具的助手，帮助用户：
+1. 查询活动量数据（提交人数、排行榜、个人数据等）
+2. 解答填报相关问题（时间、入口等）
+3. 鼓励和督促用户完成活动量填报`;
+
 // 加载数据库和 AI 教练模块
 const db = (await import('../services/db.js')).default;
 const aiCoach = await import('../services/aiCoach.js');
 const feishu = (await import('../services/feishu.js')).default;
+
+/**
+ * 调用 Claude API（通过阿里百炼）
+ */
+async function callClaude(systemPrompt, userPrompt) {
+  try {
+    const response = await axios.post(
+      'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+      {
+        model: CLAUDE_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 300
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    return response.data.choices[0].message.content;
+  } catch (error) {
+    console.error('[AI] 调用 Claude 失败:', error.message);
+    return null;
+  }
+}
+
+/**
+ * 生成群聊 AI 回复（使用 Claude API）
+ */
+async function generateAIGroupReply(message, user, activity) {
+  const msg = message.toLowerCase().trim();
+  let contextPrompt = '';
+
+  if (msg.includes('多少人') || msg.includes('提交') || msg.includes('统计')) {
+    const activities = await db.findAll('activities', {
+      activity_date: new Date().toISOString().split('T')[0],
+      is_submitted: 1
+    });
+    const submittedCount = activities.length;
+    contextPrompt = `用户在群里询问今天有多少人提交了活动量数据。今天已有 ${submittedCount} 人提交。请用温暖专业的语气回复，1-2 句话即可。`;
+  } else if (msg.includes('排行') || msg.includes('排名') || msg.includes('第一')) {
+    contextPrompt = `用户在群里询问排行榜。请回复查看排行榜的方式，鼓励大家争优创先。1-2 句话即可。`;
+  } else if (msg.includes('填报') || msg.includes('入口') || msg.includes('时间') || msg.includes('截止')) {
+    contextPrompt = `用户在群里询问填报入口或时间。请提供填报入口链接 (https://happylife888.netlify.app/) 和时间 (每天 9:00-24:00)，温和提醒。1-2 句话即可。`;
+  } else if (msg.includes('数据') || msg.includes('我的')) {
+    contextPrompt = `用户想查看自己的数据。请告诉用户访问 https://happylife888.netlify.app/ 登录查看，语气温暖鼓励。1-2 句话即可。`;
+  } else if (msg.includes('早') || msg.includes('好') || msg.includes('hi') || msg.includes('hello') || msg.includes('在吗')) {
+    contextPrompt = `用户在群里打招呼。请温暖回应，简洁友好。1-2 句话即可。`;
+  } else if (msg.includes('谢') || msg.includes('thanks')) {
+    contextPrompt = `用户表示感谢。请礼貌回应，简洁温暖。1 句话即可。`;
+  } else if (msg.includes('累') || msg.includes('辛苦') || msg.includes('困') || msg.includes('忙')) {
+    contextPrompt = `用户说累或辛苦。请共情回应，给予关心。1-2 句话即可。`;
+  } else if (msg.includes('开单') || msg.includes('成交') || msg.includes('开心')) {
+    contextPrompt = `用户有好消息（开单/成交）。请真诚祝贺并简单肯定。1-2 句话即可。`;
+  } else {
+    contextPrompt = `用户在群里说："${message}" 请以保险销售导师"千老师"的身份回复。语气温暖、专业、简洁，像微信聊天。1-2 句话即可。`;
+  }
+
+  const userPrompt = `${contextPrompt}
+
+当前用户：${user.name || '伙伴'}
+用户今天是否已提交数据：${activity ? '是' : '否'}
+
+请直接回复用户，简洁温暖。`;
+
+  const reply = await callClaude(AI_SYSTEM_PROMPT, userPrompt);
+  return reply;
+}
+
+/**
+ * 生成群聊规则回复（AI 失败时的备用）
+ */
+function generateGroupRuleReply(message, userName) {
+  const msg = message.toLowerCase().trim();
+
+  // 填报相关
+  if (msg.includes('填') || msg.includes('报') || msg.includes('活动量') || msg.includes('链接')) {
+    return `填报入口在这 👉 https://happylife888.netlify.app/
+截止时间今晚 21:00，千老师会找你复盘的哦～ 💪`;
+  }
+
+  // 默认回复
+  return `你好呀～ 有什么可以帮你的？可以问我关于活动量填报、团队数据等问题，或者访问 https://happylife888.netlify.app/ 查看详细数据～`;
+}
 
 console.log('');
 console.log('='.repeat(60));
@@ -110,14 +226,16 @@ wsClient.start({
 
           console.log('[Coach] 群聊场景，在群里回复...');
 
-          // 简单的群聊回复逻辑
-          const reply = generateGroupReply(textContent, user.name);
+          // 使用 AI 生成回复（调用 Claude API）
+          const aiReply = await generateAIGroupReply(textContent, user, activity);
+          const reply = aiReply || generateGroupRuleReply(textContent, user.name);
+
           if (!reply) {
             console.log('[Coach] 无回复内容，跳过');
             return;
           }
           await feishu.sendGroupTextMessage(chat_id, reply);
-          console.log('[Coach] 已回复到群里');
+          console.log('[Coach] 已回复到群里:', reply);
           return;
         }
 
