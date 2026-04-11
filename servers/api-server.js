@@ -16,6 +16,7 @@ dotenv.config({ path: join(__dirname, '../.env.local'), override: true });
 
 // 动态导入 bitable（CommonJS 模块）
 const bitable = (await import('../services/bitable.js')).default;
+import scheduler from '../services/scheduler.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -298,6 +299,38 @@ app.get('/api/team/ranking', authMiddleware, async (req, res) => {
   }
 });
 
+// ==================== 定时任务手动触发 ====================
+
+/**
+ * 手动触发定时任务（用于测试）
+ * POST /api/scheduler/run
+ * Body: { task: 'morning_reminder' | 'weekly_report' | 'reset_weekly' }
+ */
+app.post('/api/scheduler/run', async (req, res) => {
+  const { task } = req.body || {};
+  try {
+    let result;
+    switch (task) {
+      case 'morning_reminder':
+        await scheduler.sendMorningReminder();
+        result = { success: true, message: '早报提醒已发送' };
+        break;
+      case 'weekly_report':
+        result = await scheduler.generateWeeklyReport();
+        break;
+      case 'reset_weekly':
+        result = await scheduler.resetWeeklyData();
+        break;
+      default:
+        return res.status(400).json({ success: false, message: '未知任务: ' + task });
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('[Scheduler] 手动触发失败:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ==================== 健康检查 ====================
 
 app.get('/health', (req, res) => {
@@ -324,4 +357,7 @@ app.listen(PORT, () => {
   console.log('  GET  /api/team/dimensions  - 维度统计');
   console.log('  GET  /api/team/ranking     - 排行榜');
   console.log('='.repeat(60));
+
+  // 启动定时任务
+  scheduler.startScheduler();
 });
