@@ -1,28 +1,29 @@
 // functions/activity/index.js
-// 活动量 API - 飞书云函数入口
+// 活动量 API — 使用飞书多维表格存储
 
-const db = require('../../services/db');
-const feishu = require('../../services/feishu');
+const bitable = require('../../services/bitable');
 
 /**
  * 提交活动量
- * POST /api/activity/submit
+ * POST /api/activities/submit
+ * body: { user_name, mobile?, activity_date?, new_leads, referral, ..., total_score?, is_submitted }
  */
-async function submitActivity(userId, data) {
+async function submitActivity(body) {
   const today = new Date().toISOString().split('T')[0];
+  const activityDate = body.activity_date || today;
 
   // 计算总分
   const dimensions = {
-    new_leads: data.new_leads || 0,
-    referral: data.referral || 0,
-    invitation: data.invitation || 0,
-    sales_meeting: data.sales_meeting || 0,
-    recruit_meeting: data.recruit_meeting || 0,
-    business_plan: data.business_plan || 0,
-    deal: data.deal || 0,
-    eop_guest: data.eop_guest || 0,
-    cc_assessment: data.cc_assessment || 0,
-    training: data.training || 0
+    new_leads: body.new_leads || 0,
+    referral: body.referral || 0,
+    invitation: body.invitation || 0,
+    sales_meeting: body.sales_meeting || 0,
+    recruit_meeting: body.recruit_meeting || 0,
+    business_plan: body.business_plan || 0,
+    deal: body.deal || 0,
+    eop_guest: body.eop_guest || 0,
+    cc_assessment: body.cc_assessment || 0,
+    training: body.training || 0
   };
 
   const totalScore =
@@ -37,133 +38,93 @@ async function submitActivity(userId, data) {
     dimensions.cc_assessment * 5 +
     dimensions.training * 10;
 
-  // 检查是否已锁定 (21:00 后)
-  const now = new Date();
-  const hour = now.getHours();
-  const isLocked = hour >= 21;
-
-  console.log('[Activity] Submitting:', {
-    userId,
-    activity_date: today,
+  console.log('[Activity] Submitting to Bitable:', {
+    user_name: body.user_name,
+    activity_date: activityDate,
     dimensions,
-    totalScore,
-    submitted_at: new Date().toISOString()
+    totalScore
   });
 
-  //  Upsert 活动量数据
-  const activity = await db.upsert('activities', {
-    user_id: userId,
-    activity_date: today,
+  // Upsert 到飞书多维表格
+  const result = await bitable.upsertActivity({
+    user_name: body.user_name,
+    mobile: body.mobile || null,
+    activity_date: activityDate,
     ...dimensions,
     total_score: totalScore,
-    is_locked: isLocked ? 1 : 0,
-    is_submitted: 1,
-    submitted_at: new Date().toISOString()
-  }, 'user_id, activity_date');
+    is_submitted: 1
+  });
 
   return {
     success: true,
-    activity: {
-      ...activity,
-      isLocked
-    }
+    message: '提交成功',
+    totalScore,
+    record_id: result.record_id
   };
 }
 
 /**
  * 获取今日活动量
- * GET /api/activity/today
+ * GET /api/activities/today?date=xxx&user_name=xxx
  */
-async function getTodayActivity(userId) {
-  const today = new Date().toISOString().split('T')[0];
-
-  const activity = await db.findOne('activities', {
-    user_id: userId,
-    activity_date: today
-  });
+async function getTodayActivity(userName, date) {
+  const today = date || new Date().toISOString().split('T')[0];
+  const activity = await bitable.getUserActivities(userName, today);
 
   return {
     success: true,
-    activity: activity || null
+    data: activity || {}
   };
 }
 
-/**
- * 获取活动量历史
- * GET /api/activity/history?days=7
- */
-async function getActivityHistory(userId, days = 7) {
-  const activities = await db.findAll(
-    'activities',
-    { user_id },
-    {
-      orderBy: 'activity_date DESC',
-      limit: days
-    }
-  );
-
-  return {
-    success: true,
-    activities
-  };
-}
-
-/**
- * 检查是否已锁定
- * GET /api/activity/lock-status
- */
-async function getLockStatus() {
-  const now = new Date();
-  const hour = now.getHours();
-  const isLocked = hour >= 21;
-
-  return {
-    success: true,
-    isLocked,
-    lockHour: 21,
-    currentHour: hour
-  };
-}
-
-// 云函数入口
+// 云函数入口 (HTTP 路由方式)
 exports.handler = async (event, context) => {
+  const { httpMethod, path, body, query } = event;
+
   try {
-    const { action, userId, data } = JSON.parse(event.body || '{}');
-    const query = event.query || {};
-
-    // 获取用户 ID (从飞书上下文或参数)
-    const uid = userId || context.userId || query.userId;
-    if (!uid && action !== 'lock_status') {
-      throw new Error('Missing user ID');
-    }
-
     let result;
-    switch (action) {
-      case 'submit':
-        result = await submitActivity(uid, data);
-        break;
-      case 'today':
-        result = await getTodayActivity(uid);
-        break;
-      case 'history':
-        result = await getActivityHistory(uid, parseInt(query.days || 7));
-        break;
-      case 'lock_status':
-        result = await getLockStatus();
-        break;
-      default:
-        throw new Error(`Unknown action: ${action}`);
+
+    if (httpMethod === 'POST' && path === '/api/activities/submit') {
+      result = await submitActivity(body || {});
+    } else if (httpMethod === 'GET' && path === '/api/activities/today') {
+      if (!body?.user_name && !query?.user_name) {
+        throw new Error('缺少 user_name 参数');
+      }
+      result = await getTodayActivity(body?.user_name || query?.user_name, query?.date);
+    } else {
+      // 兼容旧的 action 格式
+      const parsedBody = typeof body === 'string' ? JSON.parse(body || '{}') : (body || {});
+      const { action, userId, data } = parsedBody;
+
+      switch (action) {
+        case 'submit':
+          result = await submitActivity({ ...data, user_name: data.user_name || userId });
+          break;
+        case 'today':
+          result = await getTodayActivity(userId, query?.date);
+          break;
+        default:
+          throw new Error(`Unknown action: ${action}`);
+      }
     }
 
     return {
       statusCode: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      },
       body: JSON.stringify(result)
     };
   } catch (error) {
     console.error('[Activity] Error:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error.message })
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      },
+      body: JSON.stringify({ success: false, message: error.message })
     };
   }
 };

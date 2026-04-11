@@ -1,7 +1,7 @@
 // functions/api-server/index.js
-// 飞书云函数版本的 API 服务器
+// 飞书云函数版本的 API 服务器 — 使用 Bitable 存储
 
-const db = require('../../services/db');
+const bitable = require('../../services/bitable');
 const auth = require('../../services/auth');
 
 // 临时 session 存储（生产环境应该用 Redis 或数据库）
@@ -89,15 +89,15 @@ exports.handler = async (event, context) => {
 
       // 获取周统计
       else if (path === '/api/user/week-stats' && httpMethod === 'GET') {
-        const weekStats = await getUserWeekStats(user.id);
+        const weekStats = await bitable.getUserWeekStats(user.name);
         result = weekStats;
       }
 
       // 获取今日活动
       else if (path === '/api/activities/today' && httpMethod === 'GET') {
         const date = query?.date || new Date().toISOString().split('T')[0];
-        const activities = await getUserActivities(user.id, date);
-        result = activities;
+        const activity = await bitable.getUserActivities(user.name, date);
+        result = activity || {};
       }
 
       // 提交活动量
@@ -108,17 +108,17 @@ exports.handler = async (event, context) => {
 
       // 获取团队统计
       else if (path === '/api/team/stats' && httpMethod === 'GET') {
-        result = await getTeamStats();
+        result = await bitable.getTeamStats();
       }
 
       // 获取维度统计
       else if (path === '/api/team/dimensions' && httpMethod === 'GET') {
-        result = await getDimensionStats();
+        result = await bitable.getDimensionStats();
       }
 
       // 获取排行榜
       else if (path === '/api/team/ranking' && httpMethod === 'GET') {
-        result = await getRanking();
+        result = await bitable.getRanking();
       }
 
       // 健康检查
@@ -152,60 +152,9 @@ exports.handler = async (event, context) => {
   }
 };
 
-// ==================== 辅助函数 ====================
-
-async function getUserWeekStats(userId) {
-  const now = new Date();
-  const dayOfWeek = now.getDay();
-  let daysUntilFriday = (5 - dayOfWeek + 7) % 7;
-  if (!(dayOfWeek === 4 || dayOfWeek === 5)) {
-    daysUntilFriday = daysUntilFriday - 7;
-  }
-
-  const friday = new Date(now);
-  friday.setDate(friday.getDate() + daysUntilFriday);
-  const weekStart = friday.toISOString().split('T')[0];
-
-  const activities = await db.findAll('activities', {
-    user_id: userId,
-    activity_date: { $gte: weekStart }
-  });
-
-  const weekScore = activities
-    .filter(a => a.is_submitted)
-    .reduce((sum, a) => sum + (a.total_score || 0), 0);
-
-  const activityCount = activities.filter(a => a.is_submitted).length;
-
-  return { weekScore, activityCount };
-}
-
-async function getUserActivities(userId, date) {
-  const activity = await db.findOne('activities', {
-    user_id: userId,
-    activity_date: date
-  });
-
-  if (!activity || !activity.is_submitted) {
-    return [];
-  }
-
-  const dimensions = {
-    new_leads: activity.new_leads,
-    referral: activity.referral,
-    invitation: activity.invitation,
-    sales_meeting: activity.sales_meeting,
-    recruit_meeting: activity.recruit_meeting,
-    business_plan: activity.business_plan,
-    deal: activity.deal,
-    eop_guest: activity.eop_guest,
-    cc_assessment: activity.cc_assessment,
-    training: activity.training
-  };
-
-  return dimensions;
-}
-
+/**
+ * 提交活动量（从 api-server 入口调用）
+ */
 async function submitActivity(user, data) {
   const dimensionScores = {
     new_leads: 1, referral: 3, invitation: 1, sales_meeting: 10,
@@ -220,9 +169,10 @@ async function submitActivity(user, data) {
     return sum;
   }, 0);
 
-  const activity = await db.upsert('activities', {
-    user_id: user.id,
-    activity_date: data.activity_date,
+  const activity = await bitable.upsertActivity({
+    user_name: user.name,
+    mobile: user.mobile || null,
+    activity_date: data.activity_date || new Date().toISOString().split('T')[0],
     new_leads: data.new_leads || 0,
     referral: data.referral || 0,
     invitation: data.invitation || 0,
@@ -234,113 +184,8 @@ async function submitActivity(user, data) {
     cc_assessment: data.cc_assessment || 0,
     training: data.training || 0,
     total_score: totalScore,
-    is_submitted: data.is_submitted || 1,
-    is_locked: 0,
-    submitted_at: new Date().toISOString()
-  }, 'user_id, activity_date');
-
-  return { totalScore, ...activity };
-}
-
-async function getTeamStats() {
-  const now = new Date();
-  const dayOfWeek = now.getDay();
-  let daysUntilFriday = (5 - dayOfWeek + 7) % 7;
-  if (!(dayOfWeek === 4 || dayOfWeek === 5)) {
-    daysUntilFriday = daysUntilFriday - 7;
-  }
-
-  const friday = new Date(now);
-  friday.setDate(friday.getDate() + daysUntilFriday);
-  const weekStart = friday.toISOString().split('T')[0];
-
-  const users = await db.findAll('users', {});
-  const activities = await db.findAll('activities', {
-    activity_date: { $gte: weekStart },
-    is_submitted: 1
+    is_submitted: data.is_submitted || 1
   });
 
-  const userScores = {};
-  activities.forEach(a => {
-    if (!userScores[a.user_id]) userScores[a.user_id] = 0;
-    userScores[a.user_id] += a.total_score || 0;
-  });
-
-  const totalMembers = users.length;
-  const submittedCount = Object.keys(userScores).length;
-  const totalScore = Object.values(userScores).reduce((sum, score) => sum + score, 0);
-  const avgScore = submittedCount > 0 ? Math.round(totalScore / submittedCount) : 0;
-
-  let starName = '-';
-  let maxScore = 0;
-  for (const [userId, score] of Object.entries(userScores)) {
-    if (score > maxScore) {
-      const user = users.find(u => u.id === userId);
-      if (user) {
-        maxScore = score;
-        starName = user.name;
-      }
-    }
-  }
-
-  return { totalMembers, avgScore, totalScore, starName };
-}
-
-async function getDimensionStats() {
-  const activities = await db.findAll('activities', { is_submitted: 1 });
-
-  const dimensions = {
-    new_leads: { count: 0, score: 0 },
-    referral: { count: 0, score: 0 },
-    invitation: { count: 0, score: 0 },
-    sales_meeting: { count: 0, score: 0 },
-    recruit_meeting: { count: 0, score: 0 },
-    business_plan: { count: 0, score: 0 },
-    deal: { count: 0, score: 0 },
-    eop_guest: { count: 0, score: 0 },
-    cc_assessment: { count: 0, score: 0 },
-    training: { count: 0, score: 0 }
-  };
-
-  const dimensionScores = {
-    new_leads: 1, referral: 3, invitation: 1, sales_meeting: 10,
-    recruit_meeting: 10, business_plan: 1, deal: 10, eop_guest: 5,
-    cc_assessment: 5, training: 10
-  };
-
-  activities.forEach(a => {
-    Object.keys(dimensions).forEach(key => {
-      const count = a[key] || 0;
-      dimensions[key].count += count;
-      dimensions[key].score += count * (dimensionScores[key] || 0);
-    });
-  });
-
-  return dimensions;
-}
-
-async function getRanking() {
-  const users = await db.findAll('users', {});
-  const activities = await db.findAll('activities', { is_submitted: 1 });
-
-  const userScores = {};
-  activities.forEach(a => {
-    if (!userScores[a.user_id]) userScores[a.user_id] = 0;
-    userScores[a.user_id] += a.total_score || 0;
-  });
-
-  const ranking = Object.entries(userScores)
-    .map(([userId, score]) => {
-      const user = users.find(u => u.id === userId);
-      return {
-        id: userId,
-        name: user?.name || '未知',
-        avatar: user?.avatar || '😊',
-        score
-      };
-    })
-    .sort((a, b) => b.score - a.score)
-    .map((item, index) => ({ ...item, rank: index + 1 }));
-
-  return ranking;
+  return { success: true, totalScore, ...activity };
 }

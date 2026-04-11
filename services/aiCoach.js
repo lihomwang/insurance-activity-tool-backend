@@ -39,7 +39,7 @@ async function callAI(systemPrompt, userPrompt) {
     const response = await axios.post(
       'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
       {
-        model: 'qwen-plus',  // 使用通义千问，安全合规
+        model: process.env.DASHSCOPE_MODEL || 'qwen-plus',  // 使用通义千问，安全合规
         messages: [
           {
             role: 'system',
