@@ -12,8 +12,9 @@ const GROUP_CHAT_IDS = process.env.FEISHU_GROUP_CHAT_IDS
   ? process.env.FEISHU_GROUP_CHAT_IDS.split(',')
   : [];
 
-const ADMIN_USER_IDS = process.env.ADMIN_USER_IDS
-  ? process.env.ADMIN_USER_IDS.split(',').map(id => id.trim()).filter(Boolean)
+// 管理员 open_id 配置（飞书用户 open_id，格式: ou_xxxxx）
+const ADMIN_OPEN_IDS = process.env.ADMIN_OPEN_IDS
+  ? process.env.ADMIN_OPEN_IDS.split(',').map(id => id.trim()).filter(Boolean)
   : [];
 
 const H5_APP_ID = process.env.H5_APP_ID;
@@ -72,13 +73,14 @@ async function sendGroupMessage(chatId, text) {
 
 /**
  * 发送私信给管理员
+ * @param {string} openId - 管理员的 open_id (格式: ou_xxxxx)
  */
-async function sendPrivateMessage(userId, text) {
+async function sendPrivateMessage(openId, text) {
   const token = await getWriteToken();
   const resp = await axios.post(
-    'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=user_id',
+    'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id',
     {
-      receive_id: userId,
+      receive_id: openId,
       msg_type: 'text',
       content: JSON.stringify({ text })
     },
@@ -195,25 +197,25 @@ ${dimText}
 感谢大家的坚持和努力！周末好好休息，下周继续加油！💪`;
 
     // 发送给管理员
-    if (ADMIN_USER_IDS.length === 0) {
-      console.log('[Scheduler] 未配置管理员 ID，周报仅打印');
+    if (ADMIN_OPEN_IDS.length === 0) {
+      console.log('[Scheduler] 未配置管理员 open_id，周报仅打印');
       console.log(reportText);
       return { success: true, report: reportText };
     }
 
     let sentCount = 0;
-    for (const userId of ADMIN_USER_IDS) {
+    for (const openId of ADMIN_OPEN_IDS) {
       try {
-        await sendPrivateMessage(userId, reportText);
+        await sendPrivateMessage(openId, reportText);
         sentCount++;
-        console.log(`[Scheduler] 周报已发送给管理员：${userId}`);
+        console.log(`[Scheduler] 周报已发送给管理员：${openId}`);
         await new Promise(r => setTimeout(r, 1000));
       } catch (err) {
-        console.error(`[Scheduler] 周报发送失败 ${userId}:`, err.message);
+        console.error(`[Scheduler] 周报发送失败 ${openId}:`, err.message);
       }
     }
 
-    console.log(`[Scheduler] 周报完成，已发送 ${sentCount}/${ADMIN_USER_IDS.length} 个管理员`);
+    console.log(`[Scheduler] 周报完成，已发送 ${sentCount}/${ADMIN_OPEN_IDS.length} 个管理员`);
     return { success: true, sent: sentCount };
 
   } catch (err) {
