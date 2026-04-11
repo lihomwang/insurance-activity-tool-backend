@@ -5,6 +5,30 @@
 
 import axios from 'axios';
 
+// 尝试加载环境变量（兼容直接运行和作为模块导入）
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import fs from 'fs';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const envPath = join(__dirname, '..', '.env.local');
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf-8');
+  envContent.split('\n').forEach(line => {
+    line = line.trim();
+    if (line && !line.startsWith('#')) {
+      const eq = line.indexOf('=');
+      if (eq > 0) {
+        const key = line.slice(0, eq).trim();
+        const val = line.slice(eq + 1).trim();
+        if (!process.env[key]) {
+          process.env[key] = val;
+        }
+      }
+    }
+  });
+}
+
 // 多维表格配置
 const BITABLE_APP_TOKEN = process.env.FEISHU_BITABLE_APP_TOKEN || 'LR0RbtG9PavAcyswZMvcETWbnEh';
 const ACTIVITIES_TABLE_ID = process.env.FEISHU_BITABLE_TABLE_ID || 'tbl1blvjmScTokEi';
@@ -102,8 +126,8 @@ function formatFieldValue(fieldName, value) {
 
   // 单选字段
   if (fieldName === 'is_submitted') {
-    if (value === 1 || value === true || value === '是') return [{ name: '是' }];
-    if (value === 0 || value === false || value === '否') return [{ name: '否' }];
+    if (value === 1 || value === true || value === '是') return '是';
+    if (value === 0 || value === false || value === '否') return '否';
     return value;
   }
 
