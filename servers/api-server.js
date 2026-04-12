@@ -72,36 +72,20 @@ app.post('/api/auth/feishu', async (req, res) => {
       return res.status(400).json({ success: false, message: '缺少授权码' });
     }
 
-    // 调用飞书登录
+    // 调用飞书登录（已返回 JWT token）
     const result = await feishuLogin(code);
-
-    // 生成 JWT token（有效期 7 天）
-    const token = jwt.sign(
-      {
-        id: result.user.id,
-        name: result.user.name,
-        avatar: result.user.avatar,
-        feishu_user_id: result.user.feishu_user_id,
-        feishu_union_id: result.user.feishu_union_id,
-        mobile: result.user.mobile
-      },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    console.log('[API] 用户登录成功:', result.user.name);
 
     res.json({
       success: true,
       user: result.user,
-      token: token
+      token: result.token
     });
   } catch (error) {
-    console.error('[API] 飞书登录失败:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || '登录失败'
-    });
+    console.error('[API] 飞书登录失败:', error.message);
+    if (error.message.includes('secret')) {
+      return res.status(401).json({ success: false, message: 'app secret invalid' });
+    }
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 

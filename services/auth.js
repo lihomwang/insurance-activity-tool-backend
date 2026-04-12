@@ -2,26 +2,32 @@
 // 飞书认证服务
 
 import axios from 'axios';
-import db from './db.js';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import jwt from 'jsonwebtoken';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// 加载环境变量
-dotenv.config({ path: join(__dirname, '../.env.local'), override: true });
+// 加载环境变量（兼容开发和生产）
+const envPath = join(__dirname, '..', '.env.local');
+try {
+  dotenv.config({ path: envPath });
+} catch {
+  // .env.local 不存在也没关系（生产环境）
+}
 
-// H5 应用配置 - 活动量统计 H5 应用
+// H5 应用配置
 const H5_APP_ID = process.env.H5_APP_ID || 'cli_a95a6b370af8dcc8';
-const H5_APP_SECRET = process.env.H5_APP_SECRET || 'v2XoWID99STcoN1l1ijQtTk0ryEdjizF';
+const H5_APP_SECRET = process.env.H5_APP_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || 'insurance-activity-tool-secret-key-2026';
 
 console.log('[Auth] H5 App ID:', H5_APP_ID);
-console.log('[Auth] H5 App Secret length:', H5_APP_SECRET?.length);
+console.log('[Auth] H5 App Secret set:', !!H5_APP_SECRET);
 
 /**
- * 获取 App Access Token（应用级凭证）
+ * 获取 App Access Token
  */
 async function getAppAccessToken() {
   const response = await axios.post(
@@ -40,47 +46,34 @@ async function getAppAccessToken() {
 }
 
 /**
- * 使用授权码获取用户 access_token (OIDC 模式 - H5 网页应用)
- * 飞书文档：https://open.feishu.cn/document/ukzMzI4LzQyMDIyODM2
+ * 使用授权码换取用户 token
  */
 async function getAccessToken(code) {
   console.log('[Auth] Calling Feishu OIDC API with app_id:', H5_APP_ID);
-  console.log('[Auth] Code:', code?.substring(0, 10) + '...');
 
-  try {
-    // 1. 先获取 App Access Token
-    const appAccessToken = await getAppAccessToken();
-    console.log('[Auth] Got App Access Token:', appAccessToken?.substring(0, 20) + '...');
+  const appAccessToken = await getAppAccessToken();
+  console.log('[Auth] Got App Access Token');
 
-    // 2. 用 App Access Token 换取 User Access Token
-    const response = await axios.post(
-      'https://open.feishu.cn/open-apis/authen/v1/oidc/access_token',
-      {
-        grant_type: 'authorization_code',
-        code: code
-      },
-      {
-        headers: {
-          'Authorization': 'Bearer ' + appAccessToken,
-          'Content-Type': 'application/json'
-        }
+  const response = await axios.post(
+    'https://open.feishu.cn/open-apis/authen/v1/oidc/access_token',
+    {
+      grant_type: 'authorization_code',
+      code: code
+    },
+    {
+      headers: {
+        'Authorization': 'Bearer ' + appAccessToken,
+        'Content-Type': 'application/json'
       }
-    );
-
-    console.log('[Auth] Feishu API response code:', response.data.code);
-
-    if (response.data.code !== 0) {
-      console.error('[Auth] getAccessToken error:', response.data);
-      throw new Error(response.data.msg || '获取 token 失败');
     }
+  );
 
-    return response.data.data;
-  } catch (error) {
-    if (error.response) {
-      console.error('[Auth] HTTP error:', error.response.status, JSON.stringify(error.response.data));
-    }
-    throw error;
+  if (response.data.code !== 0) {
+    console.error('[Auth] getAccessToken error:', response.data);
+    throw new Error(response.data.msg || '获取 token 失败');
   }
+
+  return response.data.data;
 }
 
 /**
@@ -104,58 +97,10 @@ async function getUserInfo(accessToken) {
 }
 
 /**
- * 通过 union_id 获取或创建用户（多租户版本）
- * @param {Object} feishuUserInfo - 飞书用户信息
- * @param {string} tenantId - 租户 ID
+ * 处理飞书登录
+ * 不再写数据库，直接生成 JWT
  */
-async function getOrCreateUser(feishuUserInfo, tenantId) {
-  const { union_id, open_id, name, avatar, mobile } = feishuUserInfo;
-
-  // 先查找是否存在（在同一租户内）
-  let user = await db.findOne('users', {
-    tenant_id: tenantId,
-    feishu_union_id: union_id
-  });
-
-  if (user) {
-    // 更新用户信息
-    await db.update('users', { id: user.id }, {
-      name: name || user.name,
-      avatar: avatar || user.avatar,
-      feishu_open_id: open_id || user.feishu_open_id,
-      feishu_union_id: union_id || user.feishu_union_id,
-      mobile: mobile || user.mobile,
-      updated_at: new Date()
-    });
-    return user;
-  }
-
-  // 创建新用户（使用 UUID）
-  const userId = crypto.randomUUID();
-  user = await db.insert('users', {
-    id: userId,
-    tenant_id: tenantId,
-    name: name || '飞书用户',
-    avatar: avatar || '😊',
-    feishu_user_id: union_id,
-    feishu_open_id: open_id,
-    feishu_union_id: union_id,
-    mobile: mobile,
-    created_at: new Date(),
-    updated_at: new Date()
-  });
-
-  console.log('[Auth] 创建新用户:', { userId, name, union_id, tenantId });
-  return user;
-}
-
-/**
- * 处理飞书登录（多租户版本）
- * @param {string} code - 飞书授权码
- * @param {string} tenantId - 租户 ID（从配置或域名获取）
- * @returns {Object} 用户信息和 token
- */
-export async function feishuLogin(code, tenantId) {
+export async function feishuLogin(code) {
   try {
     // 1. 获取 access_token
     const tokenData = await getAccessToken(code);
@@ -164,27 +109,29 @@ export async function feishuLogin(code, tenantId) {
     // 2. 获取用户信息
     const feishuUser = await getUserInfo(accessToken);
 
-    // 3. 获取或创建本地用户（传入 tenant_id）
-    const user = await getOrCreateUser(feishuUser, tenantId);
+    // 3. 生成 JWT token
+    const jwtToken = jwt.sign(
+      {
+        open_id: feishuUser.open_id,
+        union_id: feishuUser.union_id,
+        name: feishuUser.name,
+        avatar: feishuUser.avatar_url || '😊',
+        mobile: feishuUser.mobile
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
-    // 4. 生成会话 token
-    const sessionToken = 'session_' + Date.now() + '_' + user.id;
-
-    // 5. 保存 session（可以用 Redis，这里简单存内存）
-    // TODO: 实现 session 存储
-
+    console.log('[Auth] 登录成功:', feishuUser.name);
     return {
       user: {
-        id: user.id,
-        tenant_id: tenantId,
-        name: user.name,
-        avatar: user.avatar,
-        feishu_user_id: user.feishu_user_id,
-        feishu_union_id: user.feishu_union_id,
-        mobile: user.mobile
+        open_id: feishuUser.open_id,
+        union_id: feishuUser.union_id,
+        name: feishuUser.name,
+        avatar: feishuUser.avatar_url || '😊',
+        mobile: feishuUser.mobile
       },
-      token: sessionToken,
-      expires_in: tokenData.expires_in
+      token: jwtToken
     };
   } catch (error) {
     console.error('[Auth] 飞书登录失败:', error.message);
@@ -192,22 +139,8 @@ export async function feishuLogin(code, tenantId) {
   }
 }
 
-/**
- * 验证 session token
- */
-export async function verifyToken(token) {
-  // TODO: 实现 token 验证
-  // 简单实现：检查 token 格式
-  if (!token || !token.startsWith('session_')) {
-    return null;
-  }
-  // 实际应该查询 session 存储
-  return { valid: true };
-}
-
 export default {
   feishuLogin,
-  verifyToken,
   getAccessToken,
   getUserInfo
 };
