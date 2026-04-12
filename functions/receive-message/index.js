@@ -203,7 +203,7 @@ async function handleUserReply(event) {
 
       // 如果是数据查询类问题，补充链接
       if (lowerText.includes('排行') || lowerText.includes('填报') || lowerText.includes('数据')) {
-        await feishu.sendTextMessage(chatId, aiReply + '\n\n访问：https://happylife888.netlify.app/');
+        await feishu.sendTextMessage(chatId, aiReply + '\n\n访问：https://money888-e3c.pages.dev/');
       } else {
         await feishu.sendTextMessage(chatId, aiReply);
       }
@@ -215,11 +215,11 @@ async function handleUserReply(event) {
       if (lowerText.includes('多少人') || lowerText.includes('提交') || lowerText.includes('统计')) {
         fallback = '今天已有不少伙伴提交了活动量数据，为大家的坚持点赞！还没提交的伙伴记得在 24:00 前完成填报哦～';
       } else if (lowerText.includes('排行')) {
-        fallback = '回复【排行】查看团队排行榜！或者访问 https://happylife888.netlify.app/ 查看详细数据～';
+        fallback = '回复【排行】查看团队排行榜！或者访问 https://money888-e3c.pages.dev/ 查看详细数据～';
       } else if (lowerText.includes('填报')) {
-        fallback = '填报入口：https://happylife888.netlify.app/\n填报时间：每天 9:00 - 24:00';
+        fallback = '填报入口：https://money888-e3c.pages.dev/\n填报时间：每天 9:00 - 24:00';
       } else {
-        fallback = '你好呀！有任何问题都可以问我，或者访问 https://happylife888.netlify.app/ 查看数据～';
+        fallback = '你好呀！有任何问题都可以问我，或者访问 https://money888-e3c.pages.dev/ 查看数据～';
       }
       await feishu.sendTextMessage(chatId, fallback);
     }

@@ -102,7 +102,7 @@ async function runTest() {
 新的一天开始了，今天是活动量打卡的第 1 天。
 
 📊 活动量管理系统已开放填报：
-https://happylife888.netlify.app
+https://money888-e3c.pages.dev
 
 💪 记住：每一通电话、每一次面谈，都是通往成功的阶梯！
 
@@ -126,7 +126,7 @@ https://happylife888.netlify.app
 
 下午继续加油！💪
 
-填报入口：https://happylife888.netlify.app`);
+填报入口：https://money888-e3c.pages.dev`);
 
   console.log('✅ 12:00 午间提醒已发送\n');
   console.log('⏸️  等待 10 秒，继续下一步...\n');
@@ -141,7 +141,7 @@ https://happylife888.netlify.app
 还没有填报的伙伴要抓紧时间了！
 
 📊 填报入口：
-https://happylife888.netlify.app
+https://money888-e3c.pages.dev
 
 💡 小提示：千老师会在 21:05 与你进行一对一复盘对话，记得提前准备好今天的活动数据哦~`);
 

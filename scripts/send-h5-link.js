@@ -17,7 +17,7 @@ const FEISHU_APP_ID = process.env.FEISHU_APP_ID;
 const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET;
 
 // H5 应用地址
-const H5_URL = 'https://happylife888.netlify.app';
+const H5_URL = process.env.REPORT_URL || 'https://money888-e3c.pages.dev';
 
 /**
  * 获取租户 Token

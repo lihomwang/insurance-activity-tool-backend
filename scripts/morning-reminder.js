@@ -76,7 +76,7 @@ async function sendMorningReminder() {
     const dateText = `${dateObj.getMonth() + 1}月${dateObj.getDate()}日 ${weekDays[dateObj.getDay()]}`;
 
     // 填报链接
-    const reportUrl = 'https://happylife888.netlify.app/';
+    const reportUrl = process.env.REPORT_URL || 'https://money888-e3c.pages.dev/';
 
     // 早安文案
     const morningMessages = [

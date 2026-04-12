@@ -139,7 +139,7 @@ ${top3}
 ⭐ 参与人数：${ranking.length}
 
 详细报表请登录：
-https://happylife888.netlify.app/
+https://money888-e3c.pages.dev/
 
 感谢大家的坚持和努力！
 周末好好休息，下周继续加油！💪`;
