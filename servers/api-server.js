@@ -17,6 +17,7 @@ dotenv.config({ path: join(__dirname, '../.env.local'), override: true });
 // 动态导入 bitable（CommonJS 模块）
 const bitable = (await import('../services/bitable.js')).default;
 import scheduler from '../services/scheduler.js';
+import aiCoach from '../services/aiCoach-bitable.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -304,10 +305,10 @@ app.get('/api/team/ranking', authMiddleware, async (req, res) => {
 /**
  * 手动触发定时任务（用于测试）
  * POST /api/scheduler/run
- * Body: { task: 'morning_reminder' | 'weekly_report' | 'reset_weekly' }
+ * Body: { task: 'morning_reminder' | 'weekly_report' | 'reset_weekly' | 'ai_coach', targetUser: '用户名' }
  */
 app.post('/api/scheduler/run', async (req, res) => {
-  const { task } = req.body || {};
+  const { task, targetUser } = req.body || {};
   try {
     let result;
     switch (task) {
@@ -320,6 +321,9 @@ app.post('/api/scheduler/run', async (req, res) => {
         break;
       case 'reset_weekly':
         result = await scheduler.resetWeeklyData();
+        break;
+      case 'ai_coach':
+        result = await aiCoach.startAICoachConversations(targetUser ? { targetUser } : {});
         break;
       default:
         return res.status(400).json({ success: false, message: '未知任务: ' + task });

@@ -5,6 +5,7 @@
 
 // bitable.js 会加载 .env.local，必须先导入
 import bitable from './bitable.js';
+import aiCoach from './aiCoach-bitable.js';
 import cron from 'node-cron';
 import axios from 'axios';
 
@@ -280,6 +281,15 @@ function startScheduler() {
     );
   }, { timezone: 'Asia/Shanghai' });
   console.log('  ✅ 每天 09:00 - 早报提醒');
+
+  // 每天 21:05 AI 教练复盘
+  cron.schedule('5 21 * * *', () => {
+    console.log('[Scheduler] 触发：AI 教练复盘');
+    aiCoach.startAICoachConversations().catch(err =>
+      console.error('[Scheduler] AI 教练失败:', err)
+    );
+  }, { timezone: 'Asia/Shanghai' });
+  console.log('  ✅ 每天 21:05 - AI 教练复盘');
 
   // 每周四 22:00 周报
   cron.schedule('0 22 * * 4', () => {
