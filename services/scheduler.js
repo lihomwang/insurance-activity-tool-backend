@@ -3,8 +3,9 @@
  * 集成到 api-server.js 中运行
  */
 
-import cron from 'node-cron';
+// bitable.js 会加载 .env.local，必须先导入
 import bitable from './bitable.js';
+import cron from 'node-cron';
 import axios from 'axios';
 
 // 群聊配置
