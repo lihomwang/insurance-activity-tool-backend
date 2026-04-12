@@ -310,14 +310,14 @@ function startScheduler() {
   }, { timezone: 'Asia/Shanghai' });
   console.log('  ✅ 每周四 22:00 - 周报生成');
 
-  // 每周五 9:00 数据清零
-  cron.schedule('0 9 * * 5', () => {
+  // 每周五 10:00 数据清零
+  cron.schedule('0 10 * * 5', () => {
     console.log('[Scheduler] 触发：数据清零');
     resetWeeklyData().catch(err =>
       console.error('[Scheduler] 数据清零失败:', err)
     );
   }, { timezone: 'Asia/Shanghai' });
-  console.log('  ✅ 每周五 09:00 - 数据清零');
+  console.log('  ✅ 每周五 10:00 - 数据清零');
 
   console.log('[Scheduler] 所有定时任务已启动\n');
 }
