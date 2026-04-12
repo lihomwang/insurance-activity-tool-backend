@@ -19,6 +19,16 @@ const ADMIN_OPEN_IDS = process.env.ADMIN_OPEN_IDS
   ? process.env.ADMIN_OPEN_IDS.split(',').map(id => id.trim()).filter(Boolean)
   : [];
 
+// 用户名称到 open_id 的映射（用于 AI 教练发送私信）
+// 格式：用户名1:open_id1,用户名2:open_id2
+const USER_OPEN_ID_MAP = {};
+if (process.env.USER_OPEN_ID_MAP) {
+  process.env.USER_OPEN_ID_MAP.split(',').forEach(pair => {
+    const [name, openId] = pair.split(':').map(s => s.trim());
+    if (name && openId) USER_OPEN_ID_MAP[name] = openId;
+  });
+}
+
 const H5_APP_ID = process.env.H5_APP_ID;
 const H5_APP_SECRET = process.env.H5_APP_SECRET;
 const FEISHU_APP_ID = process.env.FEISHU_APP_ID;

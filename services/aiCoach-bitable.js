@@ -235,41 +235,34 @@ ${historyText}
 }
 
 /**
- * 从 Bitable 获取所有用户的 open_id 映射
- * 通过飞书通讯录查询
+ * 获取用户 open_id
+ * 优先从环境变量 USER_OPEN_ID_MAP 读取，其次尝试通讯录查询
  */
 async function getUserOpenIds(names) {
-  const tokenResp = await axios.post(
-    'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
-    {
-      app_id: process.env.FEISHU_APP_ID,
-      app_secret: process.env.FEISHU_APP_SECRET
-    }
-  );
-  const token = tokenResp.data.tenant_access_token;
-
+  // 从环境变量读取映射
   const nameMap = {};
-  for (const name of names) {
-    try {
-      const resp = await axios.get(
-        `https://open.feishu.cn/open-apis/contact/v3/users/batch_get_id?user_ids=${encodeURIComponent(name)}&user_id_type=user_id`,
-        { headers: { 'Authorization': 'Bearer ' + token } }
-      );
-      // Use search instead
-      const searchResp = await axios.get(
-        `https://open.feishu.cn/open-apis/contact/v3/users/search?query=${encodeURIComponent(name)}`,
-        { headers: { 'Authorization': 'Bearer ' + token } }
-      );
-      if (searchResp.data.data?.users?.length > 0) {
-        nameMap[name] = searchResp.data.data.users[0].open_id;
-        console.log(`[AI Coach] ${name} -> ${nameMap[name]}`);
-      }
-    } catch (e) {
-      console.log(`[AI Coach] 查询用户 ${name} 失败:`, e.response?.data?.msg || e.message);
-    }
-    await new Promise(r => setTimeout(r, 200));
+  if (process.env.USER_OPEN_ID_MAP) {
+    process.env.USER_OPEN_ID_MAP.split(',').forEach(pair => {
+      const [name, openId] = pair.split(':').map(s => s.trim());
+      if (name && openId) nameMap[name] = openId;
+    });
   }
-  return nameMap;
+
+  // 检查哪些用户还没找到
+  const missing = names.filter(n => !nameMap[n]);
+  if (missing.length > 0) {
+    console.log(`[AI Coach] 以下用户未在 USER_OPEN_ID_MAP 中配置: ${missing.join(', ')}`);
+  }
+
+  // 返回找到的映射
+  const result = {};
+  for (const name of names) {
+    if (nameMap[name]) {
+      result[name] = nameMap[name];
+      console.log(`[AI Coach] ${name} -> ${nameMap[name]}`);
+    }
+  }
+  return result;
 }
 
 /**
