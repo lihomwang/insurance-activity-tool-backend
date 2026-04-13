@@ -186,6 +186,132 @@ app.get('/api/activities/today', authMiddleware, async (req, res) => {
 });
 
 /**
+ * 获取用户本周活动汇总（用于首页"已填报项目"）
+ * GET /api/activities/week-summary
+ */
+app.get('/api/activities/week-summary', authMiddleware, async (req, res) => {
+  try {
+    const user = req.user;
+
+    // 计算本周期起始日期（周四）
+    const now = new Date();
+    const bjNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+    const dayOfWeek = bjNow.getDay();
+    const bjHour = bjNow.getHours();
+
+    let cycleStartThursday = new Date(bjNow);
+    if (dayOfWeek === 4 && bjHour >= 9) {
+      // 周四 9:00 之后，周期从今天开始
+    } else if (dayOfWeek === 4) {
+      // 周四 9:00 之前，周期从上周四开始
+      cycleStartThursday.setDate(cycleStartThursday.getDate() - 7);
+    } else {
+      const daysSinceThursday = (dayOfWeek - 4 + 7) % 7;
+      cycleStartThursday.setDate(cycleStartThursday.getDate() - daysSinceThursday);
+    }
+    const weekStart = cycleStartThursday.toISOString().split('T')[0];
+
+    // 获取用户所有记录
+    let records;
+    if (user?.id) {
+      records = await bitable.listRecords({ user_id: user.id }, 500);
+    } else if (user?.name) {
+      records = await bitable.listRecords({ user_name: user.name }, 500);
+    } else {
+      records = [];
+    }
+
+    // 汇总本周已提交记录中各维度的值
+    const summary = {};
+    const allDimensions = ['new_leads', 'referral', 'invitation', 'sales_meeting',
+      'recruit_meeting', 'business_plan', 'deal', 'eop_guest', 'cc_assessment', 'training'];
+
+    records.forEach(r => {
+      if (r.activity_date && r.is_submitted) {
+        const recordDate = new Date(r.activity_date).toISOString().split('T')[0];
+        if (recordDate >= weekStart) {
+          allDimensions.forEach(dim => {
+            if (r[dim] && r[dim] > 0) {
+              summary[dim] = (summary[dim] || 0) + r[dim];
+            }
+          });
+        }
+      }
+    });
+
+    res.json({ success: true, data: summary });
+  } catch (error) {
+    console.error('[API] 获取本周活动汇总失败:', error);
+    res.json({ success: true, data: {} });
+  }
+});
+
+/**
+ * 获取用户本周填报汇总（所有已提交的项目合并）
+ * GET /api/activities/week-summary
+ */
+app.get('/api/activities/week-summary', authMiddleware, async (req, res) => {
+  try {
+    const user = req.user;
+
+    // 计算本周期起始周四（周四 9:00 AM ~ 下周四 22:00 PM）
+    const now = new Date();
+    const bjNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+    const dayOfWeek = bjNow.getDay();
+    const bjHour = bjNow.getHours();
+
+    let cycleStartThursday = new Date(bjNow);
+    if (dayOfWeek === 4 && bjHour >= 9) {
+      // 周四 9:00 之后，周期从今天开始
+    } else if (dayOfWeek === 4) {
+      // 周四 9:00 之前，周期从上周四开始
+      cycleStartThursday.setDate(cycleStartThursday.getDate() - 7);
+    } else {
+      // 其他日期，找到最近的周四
+      const daysSinceThursday = (dayOfWeek - 4 + 7) % 7;
+      cycleStartThursday.setDate(cycleStartThursday.getDate() - daysSinceThursday);
+    }
+    const weekStart = cycleStartThursday.toISOString().split('T')[0];
+
+    // 获取用户所有记录
+    const records = user?.id
+      ? await bitable.listRecords({ user_id: user.id }, 500)
+      : user?.name
+        ? await bitable.listRecords({ user_name: user.name }, 500)
+        : [];
+
+    // 汇总本周已提交的维度数据
+    const summary = {
+      new_leads: 0, referral: 0, invitation: 0, sales_meeting: 0,
+      recruit_meeting: 0, business_plan: 0, deal: 0, eop_guest: 0,
+      cc_assessment: 0, training: 0
+    };
+
+    records.forEach(r => {
+      if (r.activity_date && r.is_submitted) {
+        const recordDate = new Date(r.activity_date).toISOString().split('T')[0];
+        if (recordDate >= weekStart) {
+          Object.keys(summary).forEach(key => {
+            summary[key] += r[key] || 0;
+          });
+        }
+      }
+    });
+
+    // 只返回有值的维度
+    const data = {};
+    Object.entries(summary).forEach(([key, count]) => {
+      if (count > 0) data[key] = count;
+    });
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('[API] 获取本周填报汇总失败:', error);
+    res.json({ success: true, data: {} });
+  }
+});
+
+/**
  * 获取用户今日累计分数
  * GET /api/activities/today-score?date=YYYY-MM-DD
  */
