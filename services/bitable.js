@@ -496,7 +496,7 @@ async function getTeamStats() {
     }
   });
 
-  totalMembers = userSet.size;
+  let totalMembers = userSet.size;
   const submittedCount = Object.keys(userScores).length;
   const totalScore = Object.values(userScores).reduce((sum, s) => sum + s, 0);
   const avgScore = submittedCount > 0 ? Math.round(totalScore / submittedCount) : 0;
