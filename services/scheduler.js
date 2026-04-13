@@ -144,7 +144,7 @@ async function sendMorningReminder() {
 
 /**
  * 每周四 22:00 生成周报
- * 统计上周五到这周四的数据
+ * 统计周期：周四 9:00 AM ~ 下周四 22:00 PM
  */
 async function generateWeeklyReport() {
   console.log('[Scheduler] 开始生成周报...');
@@ -153,18 +153,15 @@ async function generateWeeklyReport() {
     const today = new Date();
     const dayOfWeek = today.getDay();
 
-    // 计算本周五到下周四的日期范围
-    let daysUntilFriday = (5 - dayOfWeek + 7) % 7;
-    if (!(dayOfWeek === 4 || dayOfWeek === 5)) {
-      daysUntilFriday = daysUntilFriday - 7;
-    }
-    const friday = new Date(today);
-    friday.setDate(friday.getDate() + daysUntilFriday);
-    const thursdayNext = new Date(friday);
-    thursdayNext.setDate(thursdayNext.getDate() + 6);
+    // 计算本周期的起始周四和结束周四
+    let daysSinceThursday = (dayOfWeek - 4 + 7) % 7;
+    const cycleStartThursday = new Date(today);
+    cycleStartThursday.setDate(today.getDate() - daysSinceThursday);
+    const cycleEndThursday = new Date(cycleStartThursday);
+    cycleEndThursday.setDate(cycleStartThursday.getDate() + 7);
 
-    const weekStart = friday.toISOString().split('T')[0];
-    const weekEnd = thursdayNext.toISOString().split('T')[0];
+    const weekStart = cycleStartThursday.toISOString().split('T')[0];
+    const weekEnd = cycleEndThursday.toISOString().split('T')[0];
 
     console.log(`[Scheduler] 周报周期: ${weekStart} ~ ${weekEnd}`);
 
@@ -238,7 +235,7 @@ ${dimText}
 
 /**
  * 每周五 9:00 数据清零（重置本周周期）
- * 将上周所有记录的 is_submitted 标记为否，进入新周期
+ * 将上周所有记录的维度数量清零，total_score 归零，is_submitted 标记为否
  */
 async function resetWeeklyData() {
   console.log('[Scheduler] 开始清零本周数据...');
@@ -255,12 +252,27 @@ async function resetWeeklyData() {
     const records = await bitable.getAllRecords();
     let resetCount = 0;
 
-    // 更新所有已提交的记录为未提交
+    // 清零所有记录的维度数量和总分
+    const zeroFields = {
+      new_leads: 0,
+      referral: 0,
+      invitation: 0,
+      sales_meeting: 0,
+      recruit_meeting: 0,
+      business_plan: 0,
+      deal: 0,
+      eop_guest: 0,
+      cc_assessment: 0,
+      training: 0,
+      total_score: 0,
+      is_submitted: '否'
+    };
+
     for (const record of records) {
       if (record.is_submitted && record.record_id) {
         try {
           await bitable.updateRecord(record.record_id, {
-            fields: { is_submitted: '否' }
+            fields: zeroFields
           });
           resetCount++;
         } catch (err) {

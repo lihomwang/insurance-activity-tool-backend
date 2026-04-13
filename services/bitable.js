@@ -154,7 +154,9 @@ function formatFieldValue(fieldName, value) {
 
 /**
  * 创建或更新活动量记录
- * @param {Object} data - 活动量数据
+ * 核心逻辑：按 user_name + activity_date 唯一标识
+ * 多次提交时累加各维度数量，而不是覆盖
+ * @param {Object} data - 活动量数据（本次提交的增量）
  * @returns {Object} 记录结果
  */
 async function upsertActivity(data) {
@@ -167,21 +169,16 @@ async function upsertActivity(data) {
   }
 
   const fields = {};
-  // 数值字段
-  const numFields = ['new_leads', 'referral', 'invitation', 'sales_meeting',
-    'recruit_meeting', 'business_plan', 'deal', 'eop_guest', 'cc_assessment',
-    'training', 'total_score'];
-  numFields.forEach(f => {
-    if (data[f] !== undefined) fields[f] = Number(data[f]) || 0;
-  });
   // 文本字段
   if (user_name) fields.user_name = user_name;
   if (user_id) fields.user_id = user_id;
   if (mobile) fields.mobile = mobile;
   // 日期字段
   if (activity_date) fields.activity_date = formatFieldValue('activity_date', activity_date);
-  // 创建时间
-  fields.created_at = formatFieldValue('created_at', new Date());
+  // 创建时间（仅新建时）
+  if (!existingRecord) {
+    fields.created_at = formatFieldValue('created_at', new Date());
+  }
   // 单选字段
   if (data.is_submitted !== undefined) {
     fields.is_submitted = formatFieldValue('is_submitted', data.is_submitted);
@@ -189,11 +186,50 @@ async function upsertActivity(data) {
     fields.is_submitted = formatFieldValue('is_submitted', 1);
   }
 
+  // 数值字段：累加模式
+  const numFields = ['new_leads', 'referral', 'invitation', 'sales_meeting',
+    'recruit_meeting', 'business_plan', 'deal', 'eop_guest', 'cc_assessment',
+    'training'];
+
   if (existingRecord) {
+    // 将本次提交的增量累加到已有值上
+    numFields.forEach(f => {
+      const existing = Number(existingRecord[f]) || 0;
+      const incoming = Number(data[f]) || 0;
+      fields[f] = existing + incoming;
+    });
+    // 重新计算总分
+    const dimensionScores = {
+      new_leads: 1, referral: 3, invitation: 1, sales_meeting: 10,
+      recruit_meeting: 10, business_plan: 1, deal: 10, eop_guest: 5,
+      cc_assessment: 5, training: 10
+    };
+    let totalScore = 0;
+    numFields.forEach(f => {
+      totalScore += (fields[f] || 0) * (dimensionScores[f] || 0);
+    });
+    fields.total_score = totalScore;
+
     // 更新已有记录
     const result = await updateRecord(existingRecord.record_id, { fields });
     return { ...result, record_id: existingRecord.record_id };
   } else {
+    // 新建记录：直接使用提交的值
+    numFields.forEach(f => {
+      if (data[f] !== undefined) fields[f] = Number(data[f]) || 0;
+    });
+    // 计算总分
+    const dimensionScores = {
+      new_leads: 1, referral: 3, invitation: 1, sales_meeting: 10,
+      recruit_meeting: 10, business_plan: 1, deal: 10, eop_guest: 5,
+      cc_assessment: 5, training: 10
+    };
+    let totalScore = 0;
+    numFields.forEach(f => {
+      totalScore += (fields[f] || 0) * (dimensionScores[f] || 0);
+    });
+    fields.total_score = totalScore;
+
     // 创建新记录
     const result = await createRecord({ fields });
     return result;
@@ -383,19 +419,33 @@ async function listRecords(conditions = {}, pageSize = 100) {
 
 /**
  * 获取用户周统计
+ * 记分周期：周四 9:00 AM ~ 下周四 22:00 PM（北京时间）
  * @param {Object} user - 用户对象 { name, id }
  */
 async function getUserWeekStats(user) {
   const userName = typeof user === 'string' ? user : user?.name;
   const userId = typeof user === 'object' ? user?.id : null;
 
+  // 计算本周期的起始日期（周四）
+  // 周期规则：周四 9:00 到下周四 22:00
   const now = new Date();
-  const dayOfWeek = now.getDay();
-  let daysUntilFriday = (5 - dayOfWeek + 7) % 7;
-  if (!(dayOfWeek === 4 || dayOfWeek === 5)) daysUntilFriday -= 7;
-  const friday = new Date(now);
-  friday.setDate(friday.getDate() + daysUntilFriday);
-  const weekStart = friday.toISOString().split('T')[0];
+  const bjNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+  const dayOfWeek = bjNow.getDay(); // 0=Sun, 4=Thu
+  const bjHour = bjNow.getHours();
+
+  // 找到本周期的起始周四
+  let cycleStartThursday = new Date(bjNow);
+  if (dayOfWeek === 4 && bjHour >= 9) {
+    // 周四 9:00 之后，周期从今天开始
+  } else if (dayOfWeek === 4) {
+    // 周四 9:00 之前，周期从上周四开始
+    cycleStartThursday.setDate(cycleStartThursday.getDate() - 7);
+  } else {
+    // 其他日期，找到最近的周四
+    const daysSinceThursday = (dayOfWeek - 4 + 7) % 7;
+    cycleStartThursday.setDate(cycleStartThursday.getDate() - daysSinceThursday);
+  }
+  const weekStart = cycleStartThursday.toISOString().split('T')[0];
 
   // Get all records and filter by user
   let records;
@@ -425,16 +475,21 @@ async function getUserWeekStats(user) {
 
 /**
  * 获取团队统计
+ * 过滤掉非团队成员
  */
 async function getTeamStats() {
   const records = await getAllRecords();
 
+  // 过滤名单：排除非团队成员
+  const EXCLUDED_USERS = ['皮叔', '测试用户', 'test', '测试'];
+
   const userScores = {};
-  let totalMembers = 0;
   const userSet = new Set();
 
   records.forEach(r => {
     if (r.is_submitted && r.user_name) {
+      // 排除非团队成员
+      if (EXCLUDED_USERS.some(ex => r.user_name.includes(ex))) return;
       userSet.add(r.user_name);
       if (!userScores[r.user_name]) userScores[r.user_name] = 0;
       userScores[r.user_name] += r.total_score || 0;
@@ -460,9 +515,13 @@ async function getTeamStats() {
 
 /**
  * 获取维度统计
+ * 过滤掉非团队成员
  */
 async function getDimensionStats() {
   const records = await getAllRecords();
+
+  // 过滤名单：排除非团队成员
+  const EXCLUDED_USERS = ['皮叔', '测试用户', 'test', '测试'];
 
   const dimensions = {
     new_leads: { count: 0, score: 0 },
@@ -485,6 +544,8 @@ async function getDimensionStats() {
 
   records.forEach(r => {
     if (!r.is_submitted) return;
+    // 排除非团队成员
+    if (r.user_name && EXCLUDED_USERS.some(ex => r.user_name.includes(ex))) return;
     Object.keys(dimensions).forEach(key => {
       const count = r[key] || 0;
       dimensions[key].count += count;
@@ -497,19 +558,25 @@ async function getDimensionStats() {
 
 /**
  * 获取排行榜
+ * 过滤掉非团队成员（皮叔、测试用户等）
  */
 async function getRanking() {
   const records = await getAllRecords();
+
+  // 过滤名单：排除非团队成员
+  const EXCLUDED_USERS = ['皮叔', '测试用户', 'test', '测试'];
 
   const userScores = {};
   const userAvatars = {};
 
   records.forEach(r => {
     if (!r.is_submitted || !r.user_name) return;
+    // 排除非团队成员
+    if (EXCLUDED_USERS.some(ex => r.user_name.includes(ex))) return;
     if (!userScores[r.user_name]) userScores[r.user_name] = 0;
     userScores[r.user_name] += r.total_score || 0;
     if (!userAvatars[r.user_name]) {
-      userAvatars[r.user_name] = '😊'; // 可以从通讯录获取头像
+      userAvatars[r.user_name] = '😊';
     }
   });
 

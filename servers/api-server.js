@@ -114,17 +114,26 @@ app.get('/api/user/week-stats', authMiddleware, async (req, res) => {
   try {
     const user = req.user;
 
-    // 计算本周五到下周四的日期范围
+    // 计算本周期起始周四（周四 9:00 AM ~ 下周四 22:00 PM）
     const now = new Date();
-    const dayOfWeek = now.getDay();
-    let daysUntilFriday = (5 - dayOfWeek + 7) % 7;
-    if (!(dayOfWeek === 4 || dayOfWeek === 5)) {
-      daysUntilFriday = daysUntilFriday - 7;
-    }
+    const bjNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+    const dayOfWeek = bjNow.getDay();
+    const bjHour = bjNow.getHours();
 
-    const friday = new Date(now);
-    friday.setDate(friday.getDate() + daysUntilFriday);
-    const weekStart = friday.toISOString().split('T')[0];
+    let cycleStartThursday = new Date(bjNow);
+    if (dayOfWeek === 4 && bjHour >= 9) {
+      // 周四 9:00 之后，周期从今天开始
+    } else if (dayOfWeek === 4) {
+      // 周四 9:00 之前，周期从上周四开始
+      cycleStartThursday.setDate(cycleStartThursday.getDate() - 7);
+    } else {
+      // 其他日期，找到最近的周四
+      const daysSinceThursday = (dayOfWeek - 4 + 7) % 7;
+      cycleStartThursday.setDate(cycleStartThursday.getDate() - daysSinceThursday);
+    }
+    const weekStart = cycleStartThursday.toISOString().split('T')[0];
+
+    console.log(`[API] 周统计周期起始: ${weekStart}`);
 
     // 从 Bitable 获取用户周统计
     const weekStats = await bitable.getUserWeekStats(user);
@@ -132,7 +141,8 @@ app.get('/api/user/week-stats', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       weekScore: weekStats.weekScore,
-      activityCount: weekStats.activityCount
+      activityCount: weekStats.activityCount,
+      weekStart
     });
   } catch (error) {
     console.error('[API] 获取周统计失败:', error);
@@ -152,7 +162,7 @@ app.get('/api/activities/today', authMiddleware, async (req, res) => {
     const activity = await bitable.getUserActivities(user, date);
 
     if (!activity || !activity.is_submitted) {
-      return res.json({ success: true, data: {} });
+      return res.json({ success: true, data: {}, todayScore: 0 });
     }
 
     // 返回所有有值的维度
@@ -168,10 +178,50 @@ app.get('/api/activities/today', authMiddleware, async (req, res) => {
     if (activity.cc_assessment > 0) dimensions.cc_assessment = activity.cc_assessment;
     if (activity.training > 0) dimensions.training = activity.training;
 
-    res.json({ success: true, data: dimensions });
+    res.json({ success: true, data: dimensions, todayScore: activity.total_score || 0 });
   } catch (error) {
     console.error('[API] 获取活动数据失败:', error);
-    res.json({ success: true, data: {} });
+    res.json({ success: true, data: {}, todayScore: 0 });
+  }
+});
+
+/**
+ * 获取用户今日累计分数
+ * GET /api/activities/today-score?date=YYYY-MM-DD
+ */
+app.get('/api/activities/today-score', authMiddleware, async (req, res) => {
+  try {
+    const user = req.user;
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+
+    const activity = await bitable.getUserActivities(user, date);
+
+    if (!activity || !activity.is_submitted) {
+      return res.json({ success: true, todayScore: 0, hasSubmitted: false, counts: {} });
+    }
+
+    const counts = {
+      new_leads: activity.new_leads || 0,
+      referral: activity.referral || 0,
+      invitation: activity.invitation || 0,
+      sales_meeting: activity.sales_meeting || 0,
+      recruit_meeting: activity.recruit_meeting || 0,
+      business_plan: activity.business_plan || 0,
+      deal: activity.deal || 0,
+      eop_guest: activity.eop_guest || 0,
+      cc_assessment: activity.cc_assessment || 0,
+      training: activity.training || 0
+    };
+
+    res.json({
+      success: true,
+      todayScore: activity.total_score || 0,
+      hasSubmitted: true,
+      counts
+    });
+  } catch (error) {
+    console.error('[API] 获取今日分数失败:', error);
+    res.json({ success: true, todayScore: 0, hasSubmitted: false, counts: {} });
   }
 });
 
