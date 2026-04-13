@@ -496,7 +496,7 @@ async function getTeamStats() {
     }
   });
 
-  let totalMembers = userSet.size;
+  const totalMembers = 12; // 团队固定人数
   const submittedCount = Object.keys(userScores).length;
   const totalScore = Object.values(userScores).reduce((sum, s) => sum + s, 0);
   const avgScore = submittedCount > 0 ? Math.round(totalScore / submittedCount) : 0;
