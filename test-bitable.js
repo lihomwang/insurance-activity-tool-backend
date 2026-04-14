@@ -6,54 +6,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 dotenv.config({ path: join(__dirname, '.env.local'), override: true });
 
-// 动态导入 bitable，确保 dotenv 已加载
 const bitable = (await import('./services/bitable.js')).default;
 
-// Test 1: find record
-console.log('\n=== Test 1: 查找 皮叔 2026-04-07 ===');
-const record = await bitable.findRecord({ user_name: '皮叔', activity_date: '2026-04-07' });
-console.log('找到:', record ? record.record_id + ' score=' + record.total_score : '未找到');
+const todayBJ = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+console.log(`今日北京日期: ${todayBJ}\n`);
 
-// Test 2: upsert
-console.log('\n=== Test 2: 写入测试记录 ===');
-const result = await bitable.upsertActivity({
-  user_name: '测试用户',
-  user_id: 'test_001',
-  activity_date: '2026-04-11',
-  new_leads: 5,
-  sales_meeting: 1,
-  deal: 1,
-  total_score: 15,
-  is_submitted: 1
-});
-console.log('写入成功, record_id:', result.record_id);
+// 模拟 API 调用：getUserActivities
+// 测试1: user.id 为 null（强制走 user_name 回退）
+console.log('=== Test 1: getUserActivities({ name: "周茉", id: null }) ===');
+const r1 = await bitable.getUserActivities({ name: '周茉', id: null }, todayBJ);
+console.log(`Result: ${r1 ? `total_score=${r1.total_score}` : 'NULL'}\n`);
 
-// Test 3: read back
-console.log('\n=== Test 3: 回读 ===');
-const readBack = await bitable.findRecord({ user_name: '测试用户', activity_date: '2026-04-11' });
-console.log('回读:', readBack ? '成功' : '失败');
-if (readBack) {
-  console.log('  user_name:', readBack.user_name);
-  console.log('  new_leads:', readBack.new_leads);
-  console.log('  total_score:', readBack.total_score);
-}
+// 测试2: 模拟真实 API 场景 - user.id 存在但不匹配 Bitable
+console.log('=== Test 2: getUserActivities({ name: "周茉", id: "ou_nonexistent123" }) ===');
+const r2 = await bitable.getUserActivities({ name: '周茉', id: 'ou_nonexistent123' }, todayBJ);
+console.log(`Result: ${r2 ? `total_score=${r2.total_score}` : 'NULL'}\n`);
 
-// Test 4: team stats
-console.log('\n=== Test 4: 团队统计 ===');
-const stats = await bitable.getTeamStats();
-console.log(JSON.stringify(stats));
+// 测试3: 用 listRecords 直接测试
+console.log('=== Test 3: listRecords({ user_name: "周茉", activity_date: "' + todayBJ + '" }) ===');
+const r3 = await bitable.listRecords({ user_name: '周茉', activity_date: todayBJ }, 1);
+console.log(`Result: ${r3.length} records, first: ${r3[0] ? `total_score=${r3[0].total_score}` : 'NULL'}\n`);
 
-// Test 5: ranking
-console.log('\n=== Test 5: 排行榜 ===');
-const ranking = await bitable.getRanking();
-console.log(JSON.stringify(ranking));
-
-// Cleanup
-if (readBack) {
-  await bitable.updateRecord(readBack.record_id, {
-    fields: { is_submitted: '否' }
-  });
-  console.log('\n已清理测试记录');
-}
-
-console.log('\n✅ 全部测试通过');
+console.log('✅ 测试完成');

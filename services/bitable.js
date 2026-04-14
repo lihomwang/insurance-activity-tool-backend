@@ -171,7 +171,16 @@ async function upsertActivity(data) {
   const fields = {};
   // 文本字段
   if (user_name) fields.user_name = user_name;
-  if (user_id) fields.user_id = user_id;
+  // user_id 特殊处理：如果是更新记录，检查 user_id 是否包含对话状态 JSON
+  // AI 教练将对话状态存为 JSON 字符串在 user_id 字段，不能被 H5 提交覆盖
+  if (user_id) {
+    if (existingRecord && typeof existingRecord.user_id === 'string' && existingRecord.user_id.startsWith('{')) {
+      // 保留 AI 教练的对话状态，不覆盖
+      console.log(`[Bitable] 保留 ${user_name} 的 AI 教练对话状态，不覆盖 user_id`);
+    } else {
+      fields.user_id = user_id;
+    }
+  }
   if (mobile) fields.mobile = mobile;
   // 日期字段
   if (activity_date) fields.activity_date = formatFieldValue('activity_date', activity_date);
@@ -394,7 +403,7 @@ async function listRecords(conditions = {}, pageSize = 100) {
       let fieldValue = r[field];
 
       if (field === 'activity_date' && fieldValue) {
-        const recordDate = new Date(fieldValue).toISOString().split('T')[0];
+        const recordDate = new Date(fieldValue).toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
         if (recordDate !== value) return false;
         continue;
       }
@@ -602,11 +611,11 @@ async function getUserActivities(user, date) {
   // Try user_id first if available
   let records = [];
   if (user?.id) {
-    records = await listRecords({ user_id: user.id, activity_date: date }, 1);
+    records = await listRecords({ user_id: user.id, activity_date: date }, 500);
   }
   // Fallback to user_name
   if (records.length === 0 && user?.name) {
-    records = await listRecords({ user_name: user.name, activity_date: date }, 1);
+    records = await listRecords({ user_name: user.name, activity_date: date }, 500);
   }
 
   if (records.length === 0 || !records[0].is_submitted) {
