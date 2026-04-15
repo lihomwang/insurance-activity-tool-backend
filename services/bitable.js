@@ -169,6 +169,8 @@ async function upsertActivity(data) {
     existingRecord = await findRecord({ user_name, activity_date });
   }
 
+  console.log(`[Bitable] upsertActivity: user=${user_name}, date=${activity_date}, existingRecord=${existingRecord ? existingRecord.record_id : 'NONE'}`);
+
   const fields = {};
   // 文本字段
   if (user_name) fields.user_name = user_name;
