@@ -202,11 +202,14 @@ async function upsertActivity(data) {
     'training'];
 
   if (existingRecord) {
-    // 将本次提交的增量累加到已有值上
+    // 覆盖模式：使用本次提交的完整值，而不是累加
+    // 因为前端每次提交的都是当前表单的完整值，不是增量
     numFields.forEach(f => {
-      const existing = Number(existingRecord[f]) || 0;
-      const incoming = Number(data[f]) || 0;
-      fields[f] = existing + incoming;
+      if (data[f] !== undefined) {
+        fields[f] = Number(data[f]) || 0;
+      } else {
+        fields[f] = existingRecord[f] || 0;
+      }
     });
     // 重新计算总分
     const dimensionScores = {
