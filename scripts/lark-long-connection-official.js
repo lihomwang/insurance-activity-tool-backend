@@ -15,8 +15,8 @@ const __dirname = dirname(__filename);
 config({ path: join(__dirname, '../.env.local'), override: true });
 
 // 配置
-const FEISHU_APP_ID = process.env.FEISHU_APP_ID || 'cli_a95a59999e78dcc0';
-const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET || 'oGkCG8FHYRxW3hNjVU3oceYgE3hYMkmE';
+const FEISHU_APP_ID = process.env.FEISHU_APP_ID || 'cli_a94a9e266338dcb2';
+const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET || 'jwD6beUwky70NfEeTmBamfHcxe0BwPzP';
 
 // 填报链接
 const REPORT_URL = process.env.REPORT_URL || 'https://happylife888.netlify.app/';

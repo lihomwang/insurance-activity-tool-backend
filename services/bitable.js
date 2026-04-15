@@ -38,9 +38,10 @@ const ACTIVITIES_TABLE_ID = process.env.FEISHU_BITABLE_TABLE_ID || 'tbl1blvjmScT
 const READ_APP_ID = process.env.H5_APP_ID || 'cli_a95a6b370af8dcc8';
 const READ_APP_SECRET = process.env.H5_APP_SECRET || 'v2XoWID99STcoN1l1ijQtTk0ryEdjizF';
 
-// 写操作使用长连接应用（需要在飞书开放平台开通 bitable:app 权限）
-const WRITE_APP_ID = process.env.FEISHU_APP_ID || 'cli_a95a59999e78dcc0';
-const WRITE_APP_SECRET = process.env.FEISHU_APP_SECRET || 'oGkCG8FHYRxW3hNjVU3oceYgE3hYMkmE';
+// 写操作使用新 AI 教练应用（替代已停用的 cli_a95a59999e78dcc0）
+// 需要在飞书开放平台开通 base:record:create 权限
+const WRITE_APP_ID = process.env.FEISHU_APP_ID || 'cli_a94a9e266338dcb2';
+const WRITE_APP_SECRET = process.env.FEISHU_APP_SECRET || 'jwD6beUwky70NfEeTmBamfHcxe0BwPzP';
 
 // Token 缓存（读写分开）
 let readToken = null;
