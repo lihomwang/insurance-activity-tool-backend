@@ -384,6 +384,8 @@ async function getAllRecords(pageSize = 100) {
     // Convert is_submitted from select option to number
     if (fields.is_submitted && Array.isArray(fields.is_submitted)) {
       fields.is_submitted = fields.is_submitted.some(opt => opt.name === '是') ? 1 : 0;
+    } else if (typeof fields.is_submitted === 'string') {
+      fields.is_submitted = fields.is_submitted === '是' ? 1 : 0;
     }
     return {
       record_id: item.record_id,

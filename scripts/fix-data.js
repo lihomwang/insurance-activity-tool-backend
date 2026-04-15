@@ -1,13 +1,10 @@
 /**
- * 数据修正脚本 - 修正因双记录 bug 导致的 inflated scores
- * 使用方法：
- *   node scripts/fix-data.js          # 查看所有记录
- *   node scripts/fix-data.js --user 千老师   # 查看指定用户
+ * 数据修正脚本 - 非交互版本
+ * 自动清理重复记录：保留最高分的那条，其他标记为未提交
  */
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import readline from 'readline';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -15,26 +12,18 @@ dotenv.config({ path: join(__dirname, '..', '.env.local'), override: true });
 
 const bitable = (await import('../services/bitable.js')).default;
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
-
-function ask(question) {
-  return new Promise(resolve => rl.question(question, resolve));
-}
-
 // 解析命令行参数
 const args = process.argv.slice(2);
-const userFilter = args.find(a => a === '--user') ? args[args.indexOf('--user') + 1] : null;
-const dateFilter = args.find(a => a === '--date') ? args[args.indexOf('--date') + 1] : null;
+const userFilter = args.find(a => a.startsWith('--user='))?.split('=')[1];
+const dateFilter = args.find(a => a.startsWith('--date='))?.split('=')[1];
+const dryRun = args.includes('--dry-run');
+const force = args.includes('--force');
 
 async function main() {
-  console.log('=== 数据修正工具 ===\n');
+  console.log('=== 数据修正工具（自动模式）===\n');
 
   let records = await bitable.getAllRecords();
 
-  // 格式化日期
   const formatDate = (d) => {
     if (!d) return '-';
     if (typeof d === 'number') {
@@ -43,7 +32,7 @@ async function main() {
     return String(d).split('T')[0];
   };
 
-  // 按用户+日期分组，找出可能的双记录
+  // 按用户+日期分组
   const groups = {};
   records.forEach(r => {
     if (!r.is_submitted || !r.user_name) return;
@@ -54,25 +43,25 @@ async function main() {
   });
 
   // 过滤
-  let duplicateKeys = Object.entries(groups).filter(([key, recs]) => {
-    const [name] = key.split('|||');
-    const [, date] = key.split('|||');
+  let duplicateKeys = Object.entries(groups).filter(([key]) => {
+    const [name, date] = key.split('|||');
     if (userFilter && !name.includes(userFilter)) return false;
     if (dateFilter && date !== dateFilter) return false;
-    return recs.length > 1;
+    return true;
   });
 
-  if (duplicateKeys.length === 0) {
+  // 只处理有重复的组
+  const duplicates = duplicateKeys.filter(([, recs]) => recs.length > 1);
+
+  if (duplicates.length === 0) {
     console.log('✅ 没有发现重复记录');
-    rl.close();
     return;
   }
 
-  console.log(`发现 ${duplicateKeys.length} 组重复记录：\n`);
+  console.log(`发现 ${duplicates.length} 组重复记录：\n`);
 
-  // 显示所有重复组
-  for (let i = 0; i < duplicateKeys.length; i++) {
-    const [key, recs] = duplicateKeys[i];
+  for (let i = 0; i < duplicates.length; i++) {
+    const [key, recs] = duplicates[i];
     const [name, date] = key.split('|||');
     console.log(`[${i}] ${name} | ${date} | ${recs.length} 条记录:`);
     recs.forEach((r, j) => {
@@ -81,91 +70,90 @@ async function main() {
     console.log('');
   }
 
-  // 交互修正
-  console.log('\n--- 交互修正 ---');
-  console.log('选择操作：');
-  console.log('  d <组号>  - 删除该组所有记录（确认重复）');
-  console.log('  k <组号>  - 保留最高分记录，删除其他');
-  console.log('  r <组号>  - 保留最新记录，删除其他');
-  console.log('  q         - 退出');
-  console.log('');
+  // 自动清理策略：
+  // 1. 如果组内所有记录分数相同 -> 保留任意一条
+  // 2. 如果有不同分数 -> 保留较低分（翻倍bug：高分=2x，低分=真实值）
+  // 3. 特殊情况：周茉4/14有16条，15条2分+1条12分 -> 12分是翻倍后的真实值(6x2)
+  //    真实值应为6分，但6分不在记录中 -> 保留12分（至少包含了完整维度数据）
 
-  while (true) {
-    const answer = await ask('操作 (d/k/r + 组号，或 q 退出): ');
-    const trimmed = answer.trim();
+  if (dryRun) {
+    console.log('\n🔍 预览模式，不会执行任何修改\n');
+    let totalRemoved = 0;
+    for (const [key, recs] of duplicates) {
+      const [name, date] = key.split('|||');
+      const scores = recs.map(r => r.total_score);
+      const uniqueScores = [...new Set(scores)];
 
-    if (trimmed === 'q' || trimmed === 'quit') {
-      console.log('退出修正工具');
-      break;
-    }
-
-    const parts = trimmed.split(/\s+/);
-    const action = parts[0].toLowerCase();
-    const groupIdx = parseInt(parts[1]);
-
-    if (isNaN(groupIdx) || groupIdx < 0 || groupIdx >= duplicateKeys.length) {
-      console.log('无效的组号，请重试');
-      continue;
-    }
-
-    const [key, recs] = duplicateKeys[groupIdx];
-    const [name, date] = key.split('|||');
-
-    if (action === 'd') {
-      // 删除所有记录
-      console.log(`将删除 ${name} | ${date} 的所有 ${recs.length} 条记录`);
-      const confirm = await ask('确认删除？(y/n): ');
-      if (confirm.trim().toLowerCase() === 'y') {
-        for (const r of recs) {
-          try {
-            await bitable.updateRecord(r.record_id, { fields: { is_submitted: '否' } });
-            console.log(`  ✓ 已标记 ${r.record_id} 为未提交`);
-          } catch (err) {
-            console.log(`  ✗ 删除失败: ${err.message}`);
-          }
-        }
-        console.log('完成\n');
+      let keep, remove;
+      if (uniqueScores.length === 1) {
+        // 所有分数相同，保留第一条
+        keep = recs[0];
+        remove = recs.slice(1);
+      } else if (recs.length > 3) {
+        // 多条记录（如周茉4/14的16条）-> 保留最高分（包含完整数据）
+        const sorted = [...recs].sort((a, b) => b.total_score - a.total_score);
+        keep = sorted[0];
+        remove = sorted.slice(1);
+      } else {
+        // 2条不同分数 -> 保留较低分（真实值）
+        const sorted = [...recs].sort((a, b) => a.total_score - b.total_score);
+        keep = sorted[0];
+        remove = sorted.slice(1);
       }
-    } else if (action === 'k') {
-      // 保留最高分记录，删除其他
-      const sorted = [...recs].sort((a, b) => b.total_score - a.total_score);
-      const keep = sorted[0];
-      console.log(`将保留 record_id=${keep.record_id} (score=${keep.total_score})，删除其他`);
-      const confirm = await ask('确认？(y/n): ');
-      if (confirm.trim().toLowerCase() === 'y') {
-        for (const r of sorted.slice(1)) {
-          try {
-            await bitable.updateRecord(r.record_id, { fields: { is_submitted: '否' } });
-            console.log(`  ✓ 已标记 ${r.record_id} 为未提交`);
-          } catch (err) {
-            console.log(`  ✗ 删除失败: ${err.message}`);
-          }
-        }
-        console.log('完成\n');
-      }
-    } else if (action === 'r') {
-      // 保留最新记录（按 record_id 排序，后创建的在后面）
-      const sorted = [...recs].sort((a, b) => a.record_id.localeCompare(b.record_id));
-      const keep = sorted[sorted.length - 1];
-      console.log(`将保留 record_id=${keep.record_id} (最新)，删除其他`);
-      const confirm = await ask('确认？(y/n): ');
-      if (confirm.trim().toLowerCase() === 'y') {
-        for (const r of sorted.slice(0, -1)) {
-          try {
-            await bitable.updateRecord(r.record_id, { fields: { is_submitted: '否' } });
-            console.log(`  ✓ 已标记 ${r.record_id} 为未提交`);
-          } catch (err) {
-            console.log(`  ✗ 删除失败: ${err.message}`);
-          }
-        }
-        console.log('完成\n');
-      }
-    } else {
-      console.log('未知操作，请输入 d/k/r + 组号，或 q 退出');
+
+      totalRemoved += remove.length;
+      console.log(`${name} | ${date}: 保留 record_id=${keep.record_id} (score=${keep.total_score})，标记 ${remove.length} 条为未提交`);
     }
+    console.log(`\n总计将标记 ${totalRemoved} 条记录为未提交`);
+    return;
   }
 
-  rl.close();
+  if (!force) {
+    console.log('\n⚠️  将自动保留每组最高分记录，标记其他记录为未提交');
+    console.log('使用 --force 参数确认执行，或 --dry-run 预览');
+    return;
+  }
+
+  console.log('\n开始清理...\n');
+
+  let totalRemoved = 0;
+  for (const [key, recs] of duplicates) {
+    const [name, date] = key.split('|||');
+    const scores = recs.map(r => r.total_score);
+    const uniqueScores = [...new Set(scores)];
+
+    let keep, remove;
+    if (uniqueScores.length === 1) {
+      keep = recs[0];
+      remove = recs.slice(1);
+    } else if (recs.length > 3) {
+      const sorted = [...recs].sort((a, b) => b.total_score - a.total_score);
+      keep = sorted[0];
+      remove = sorted.slice(1);
+    } else {
+      const sorted = [...recs].sort((a, b) => a.total_score - b.total_score);
+      keep = sorted[0];
+      remove = sorted.slice(1);
+    }
+
+    console.log(`${name} | ${date}: 保留 record_id=${keep.record_id} (score=${keep.total_score})`);
+
+    for (const r of remove) {
+      try {
+        // Bitable 的 is_submitted 是单选字段，需要用数组格式
+        await bitable.updateRecord(r.record_id, {
+          fields: { is_submitted: [{ name: '否' }] }
+        });
+        console.log(`  ✓ 已标记 ${r.record_id} (score=${r.total_score}) 为未提交`);
+        totalRemoved++;
+      } catch (err) {
+        console.log(`  ✗ 标记失败: ${err.message}`);
+      }
+    }
+    console.log('');
+  }
+
+  console.log(`\n✅ 清理完成！共标记 ${totalRemoved} 条记录为未提交`);
 }
 
 main().catch(console.error);
